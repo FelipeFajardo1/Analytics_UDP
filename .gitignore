@@ -1,0 +1,48 @@
+# Entornos virtuales y cachés de Python
+.venv/
+venv/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Configuración local de editores y asistentes
+.vscode/
+.idea/
+.agents/
+.claude/
+*.code-workspace
+
+# Secretos y configuración local
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+*.pem
+*.key
+secrets/
+
+# Datos académicos y archivos institucionales confidenciales
+data/*.xlsx
+data/*.xls
+data/*.xlsm
+data/*.csv
+contexto.pdf
+graficas.docx
+CONTEXT_KEY.md
+
+# Archivos temporales y de sistema
+*.tmp
+*.temp
+*.log
+*.bak
+*.swp
+~$*
+.DS_Store
+Thumbs.db
