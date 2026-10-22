@@ -2,8 +2,6 @@
 
 Dashboard web para explorar el rendimiento académico del Instituto Tecnológico del Putumayo (ITP). La aplicación consolida registros históricos y del periodo en curso desde un archivo Excel, calcula indicadores académicos, permite analizar asignaturas y estudiantes, identifica alertas tempranas y ofrece explicaciones generadas con Google Gemini.
 
-> **Importante:** los datos académicos son confidenciales. No publiques el archivo Excel, documentos institucionales, API keys ni credenciales en un repositorio público.
-
 ## Características
 
 - Autenticación básica para restringir el acceso al dashboard.
