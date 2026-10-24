@@ -2,7 +2,6 @@
 
 Dashboard web para explorar el rendimiento académico del Instituto Tecnológico del Putumayo (ITP). La aplicación consolida registros históricos y del periodo en curso desde un archivo Excel, calcula indicadores académicos, permite analizar asignaturas y estudiantes, identifica alertas tempranas y ofrece explicaciones generadas con Google Gemini.
 
-
 ## Características
 
 - Autenticación básica para restringir el acceso al dashboard.
@@ -42,7 +41,7 @@ Dashboard web para explorar el rendimiento académico del Instituto Tecnológico
 ├── app.py                         # Punto de entrada de Streamlit
 ├── requirements.txt               # Dependencias de Python
 ├── data/
-│   └── Consolidado_*.xlsx         # Fuente académica local; no debe publicarse
+│   └── archivo_academico.xlsx     # Único Excel local; no debe publicarse
 └── src/
     ├── etl/
     │   ├── cleaner.py             # Lectura, limpieza y consolidación del Excel
@@ -116,13 +115,15 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 ## Preparar los datos
 
-Coloca el archivo consolidado en:
+Coloca un único archivo Excel dentro de la carpeta `data/`. El nombre es libre:
 
 ```text
-data/Consolidado_Calificaciones_2023_2026 v2 .xlsx
+data/archivo_academico.xlsx
 ```
 
-El archivo debe contener las hojas académicas de 2023 a 2026. La aplicación acepta una ruta alternativa cuando el administrador carga un archivo desde la pestaña **Gestión de Datos**, pero el archivo cargado reemplaza el consolidado local al confirmar **Guardar y Consolidar**.
+El archivo debe contener las hojas académicas de 2023 a 2026. La aplicación detecta automáticamente el único archivo con extensión `.xlsx`, `.xls` o `.xlsm` que encuentre en `data/`; no depende de un nombre fijo. Si encuentra más de un archivo Excel, mostrará un error y solicitará dejar solo uno.
+
+Desde la pestaña **Gestión de Datos**, un administrador puede cargar un nuevo archivo. Al confirmar **Guardar y Consolidar**, se eliminan los archivos Excel anteriores de `data/` y se conserva únicamente el archivo nuevo, usando su nombre original.
 
 ## Ejecutar la aplicación
 
@@ -200,5 +201,3 @@ Antes de crear el primer commit, comprueba:
 git status --short
 git check-ignore -v data contexto.pdf graficas.docx CONTEXT_KEY.md
 ```
-
-

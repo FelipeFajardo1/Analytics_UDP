@@ -95,11 +95,11 @@ def _generar_con_gemini(prompt, api_key):
 
 def generar_analisis_ia(df, api_key):
     """
-    Genera un análisis ejecutivo con IA usando Google Gemini.
+    Genera un analisis ejecutivo con IA usando Google Gemini.
     
-    Extrae un resumen estadístico 100% anonimizado del DataFrame
-    (promedio global, tasa de reprobación general, número de estudiantes activos
-    y las 3 materias con mayor índice de pérdida).
+    Extrae un resumen estadistico 100% anonimizado del DataFrame
+    (promedio global, tasa de reprobacion general, numero de estudiantes activos
+    y las 3 materias con mayor indice de perdida).
     
     Args:
         df: DataFrame con datos limpios
@@ -109,22 +109,22 @@ def generar_analisis_ia(df, api_key):
         Respuesta generada por el modelo de IA
     """
     if df is None or df.empty:
-        return "No hay datos suficientes para generar un análisis."
+        return "No hay datos suficientes para generar un analisis."
     
     if not api_key or api_key.strip() == "":
         return "Por favor, ingrese su API Key de Google en la barra lateral."
     
     resumen = _resumen_anonimo(df)
     resumen_texto = json.dumps(resumen, ensure_ascii=False, indent=2)
-    prompt = f"""Eres un analista experto en resultados académicos.
+    prompt = f"""Eres un analista experto en resultados academicos.
 Analiza TODOS los apartados del resumen agregado: periodos, programas, sedes,
-semestres, asignaturas, notas y estados. Entrega un análisis ejecutivo claro
+semestres, asignaturas, notas y estados. Entrega un analisis ejecutivo claro
 con estas secciones:
 1. Panorama general y hallazgos principales.
 2. Comparaciones relevantes entre periodos, programas, sedes y semestres.
 3. Asignaturas y patrones con mayor riesgo.
 4. Recomendaciones concretas y priorizadas.
-Usa únicamente los datos proporcionados, indica cuando falte información y no
+Usa unicamente los datos proporcionados, indica cuando falte informacion y no
 menciones estudiantes, nombres ni identificadores individuales.
 
 Resumen agregado:
@@ -133,19 +133,19 @@ Resumen agregado:
 
 
 def explicar_grafico_ia(df, api_key, nombre_grafico, descripcion_grafico):
-    """Explica únicamente la gráfica seleccionada usando datos agregados."""
+    """Explica unicamente la grafica seleccionada usando datos agregados."""
     if df is None or df.empty:
-        return "No hay datos suficientes para explicar esta gráfica."
+        return "No hay datos suficientes para explicar esta grafica."
     if not api_key or not api_key.strip():
         return "Por favor, ingrese su API Key de Google en la barra lateral."
 
     resumen_texto = json.dumps(_resumen_anonimo(df), ensure_ascii=False, indent=2)
-    prompt = f"""Eres un analista académico. Explica la gráfica seleccionada
-de forma breve y útil para un directivo.
-Gráfica: {nombre_grafico}
-Descripción: {descripcion_grafico}
-Incluye: qué representa, dos o tres hallazgos visibles, posibles riesgos y
-una recomendación. No inventes cifras, no menciones datos individuales y usa
+    prompt = f"""Eres un analista academico. Explica la grafica seleccionada
+de forma breve y util para un directivo.
+Grafica: {nombre_grafico}
+Descripcion: {descripcion_grafico}
+Incluye: que representa, dos o tres hallazgos visibles, posibles riesgos y
+una recomendacion. No inventes cifras, no menciones datos individuales y usa
 solo el resumen agregado.
 
 Resumen agregado:

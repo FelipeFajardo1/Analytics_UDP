@@ -4,13 +4,13 @@ import pandas as pd
 
 def calcular_kpis_globales(df: pd.DataFrame):
     """
-    Calcula los KPIs globales del aplicativo de analítica académica.
+    Calcula los KPIs globales del aplicativo de analitica academica.
     
     Filtra los registros CON_BOLETIN y calcula:
-    - Total de estudiantes únicos
-    - Total de matrículas
-    - Nota promedio global (usando DEFINITIVA_ALMACENADA para periodos históricos)
-    - Tasa porcentual de aprobación vs. reprobación
+    - Total de estudiantes unicos
+    - Total de matriculas
+    - Nota promedio global (usando DEFINITIVA_ALMACENADA para periodos historicos)
+    - Tasa porcentual de aprobacion vs. reprobacion
     
     Args:
         df: DataFrame limpio retornado por cargar_datos_limpios()
@@ -34,7 +34,7 @@ def calcular_kpis_globales(df: pd.DataFrame):
     if 'TIPO_REGISTRO' in df_trabajo.columns:
         df_trabajo = df_trabajo[df_trabajo['TIPO_REGISTRO'] == 'CON_BOLETIN'].copy()
     
-    # Eliminar filas con datos críticos nulos
+    # Eliminar filas con datos criticos nulos
     if df_trabajo.empty:
         return {
             'total_estudiantes_unicos': 0,
@@ -51,12 +51,12 @@ def calcular_kpis_globales(df: pd.DataFrame):
     # Calcular nota promedio global
     nota_promedio_global = np.nan
     if 'DEFINITIVA_ALMACENADA' in df_trabajo.columns:
-        # Para periodos históricos usar DEFINITIVA_ALMACENADA
+        # Para periodos historicos usar DEFINITIVA_ALMACENADA
         notas_validas = df_trabajo['DEFINITIVA_ALMACENADA'].dropna()
         if not notas_validas.empty:
             nota_promedio_global = float(notas_validas.mean())
     
-    # Calcular tasa de aprobación vs. reprobación
+    # Calcular tasa de aprobacion vs. reprobacion
     tasa_aprobacion = 0.0
     tasa_reprobacion = 0.0
     
@@ -107,9 +107,9 @@ def calcular_rendimiento_materias(df: pd.DataFrame):
     Calcula el rendimiento por materia.
     
     Agrupa los datos por ASIGNATURA y calcula:
-    - Número de inscritos
+    - Numero de inscritos
     - Nota promedio
-    - Porcentaje de reprobación
+    - Porcentaje de reprobacion
     
     Args:
         df: DataFrame limpio retornado por cargar_datos_limpios()
@@ -143,7 +143,7 @@ def calcular_rendimiento_materias(df: pd.DataFrame):
             if not notas_validas.empty:
                 nota_promedio = float(notas_validas.mean())
         
-        # Calcular porcentaje de reprobación
+        # Calcular porcentaje de reprobacion
         porcentaje_reprobacion = 0.0
         if 'ESTADO_MATERIA' in grupo.columns:
             grupo_estado = grupo[grupo['ESTADO_MATERIA'].notna()]
@@ -175,7 +175,7 @@ def calcular_rendimiento_materias(df: pd.DataFrame):
         })
     
     df_resultado = pd.DataFrame(resultados)
-    # Ordenar por porcentaje de reprobación descendente
+    # Ordenar por porcentaje de reprobacion descendente
     if not df_resultado.empty:
         df_resultado = df_resultado.sort_values('porcentaje_reprobacion', ascending=False).reset_index(drop=True)
     
@@ -186,9 +186,9 @@ def detectar_alertas_tempranas(df: pd.DataFrame):
     """
     Detecta alertas tempranas para el periodo en curso.
     
-    Filtra exclusivamente el periodo en curso (2026-2), evalúa únicamente
+    Filtra exclusivamente el periodo en curso (2026-2), evalua unicamente
     la columna PRIMER_PARCIAL e identifica a los estudiantes (ID_ESTUDIANTE, NOMBRE_COMPLETO)
-    que tengan una calificación menor a 3.0 en 2 o más asignaturas.
+    que tengan una calificacion menor a 3.0 en 2 o mas asignaturas.
     
     Args:
         df: DataFrame limpio retornado por cargar_datos_limpios()
@@ -220,7 +220,7 @@ def detectar_alertas_tempranas(df: pd.DataFrame):
     if df_periodo_curso.empty:
         return pd.DataFrame(columns=['ID_ESTUDIANTE', 'NOMBRE_COMPLETO', 'num_asignaturas_bajo_rendimiento', 'asignaturas_afectadas'])
     
-    # Filtrar solo registros CON_BOLETIN si está disponible
+    # Filtrar solo registros CON_BOLETIN si esta disponible
     if 'TIPO_REGISTRO' in df_periodo_curso.columns:
         df_periodo_curso = df_periodo_curso[df_periodo_curso['TIPO_REGISTRO'] == 'CON_BOLETIN'].copy()
     
@@ -248,7 +248,7 @@ def detectar_alertas_tempranas(df: pd.DataFrame):
                 except (ValueError, TypeError):
                     continue
         
-        # Identificar si tiene 2 o más asignaturas con calificación menor a 3.0
+        # Identificar si tiene 2 o mas asignaturas con calificacion menor a 3.0
         if len(asignaturas_bajo_rendimiento) >= 2:
             # Obtener nombre completo
             nombre_completo = np.nan

@@ -26,7 +26,7 @@ def mostrar_ficha_estudiante(df):
     )
     
     if not termino_busqueda or termino_busqueda.strip() == "":
-        st.info("Ingrese un término de búsqueda para consultar la ficha del estudiante.")
+        st.info("Ingrese un termino de busqueda para consultar la ficha del estudiante.")
         return
     
     termino_busqueda_lower = termino_busqueda.strip().lower()
@@ -46,18 +46,18 @@ def mostrar_ficha_estudiante(df):
         estudiantes_encontrados = df_busqueda[mask_nombre].copy()
     
     if estudiantes_encontrados.empty:
-        st.warning("No se encontraron estudiantes con ese criterio de búsqueda.")
+        st.warning("No se encontraron estudiantes con ese criterio de busqueda.")
         return
     
-    # Obtener información del estudiante
+    # Obtener informacion del estudiante
     if 'ID_ESTUDIANTE' in estudiantes_encontrados.columns:
         id_estudiante = estudiantes_encontrados['ID_ESTUDIANTE'].iloc[0]
         df_estudiante = df_busqueda[df_busqueda['ID_ESTUDIANTE'] == id_estudiante].copy()
     else:
         df_estudiante = estudiantes_encontrados.copy()
     
-    # Mostrar información básica
-    st.markdown("### Información General")
+    # Mostrar informacion basica
+    st.markdown("### Informacion General")
     col_info1, col_info2, col_info3 = st.columns(3)
     
     with col_info1:
@@ -75,17 +75,17 @@ def mostrar_ficha_estudiante(df):
             programa = df_estudiante['PROGRAMA'].dropna().iloc[0] if not df_estudiante['PROGRAMA'].dropna().empty else "N/A"
             st.text_input("Programa", value=str(programa), disabled=True)
     
-    # Métricas del estudiante
-    st.markdown("### Métricas Acumuladas")
+    # Metricas del estudiante
+    st.markdown("### Metricas Acumuladas")
     
     col_m1, col_m2, col_m3 = st.columns(3)
     
-    # Promedio acumulado histórico (usar DEFINITIVA_ALMACENADA para históricos, CON_BOLETIN)
+    # Promedio acumulado historico (usar DEFINITIVA_ALMACENADA para historicos, CON_BOLETIN)
     df_est_historico = df_estudiante.copy()
     if 'TIPO_REGISTRO' in df_est_historico.columns:
         df_est_historico = df_est_historico[df_est_historico['TIPO_REGISTRO'] == 'CON_BOLETIN'].copy()
     
-    # Excluir periodo en curso para promedio acumulado histórico
+    # Excluir periodo en curso para promedio acumulado historico
     if 'CALIDAD_CIERRE' in df_est_historico.columns:
         df_est_historico_prom = df_est_historico[
             ~df_est_historico['CALIDAD_CIERRE'].astype(str).str.upper().str.contains('PERIODO_EN_CURSO_NO_FINAL', na=False)
@@ -101,9 +101,9 @@ def mostrar_ficha_estudiante(df):
     
     with col_m1:
         if pd.isna(promedio_acumulado):
-            st.metric("Promedio Acumulado Histórico", "N/A")
+            st.metric("Promedio Acumulado Historico", "N/A")
         else:
-            st.metric("Promedio Acumulado Histórico", f"{promedio_acumulado:.2f}")
+            st.metric("Promedio Acumulado Historico", f"{promedio_acumulado:.2f}")
     
     # Materias aprobadas y reprobadas
     aprobadas = 0
@@ -132,7 +132,7 @@ def mostrar_ficha_estudiante(df):
         st.metric("Materias Reprobadas", f"{reprobadas}")
     
     # Historial completo de materias
-    st.markdown("### Historial Académico Completo")
+    st.markdown("### Historial Academico Completo")
     
     columnas_historial = []
     for col in ['PERIODO', 'ANIO', 'SEMESTRE_ASIGNATURA', 'ASIGNATURA', 'CODIGO_ASIGNATURA', 

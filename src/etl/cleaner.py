@@ -1,4 +1,4 @@
-import os
+from pathlib import Path
 import pandas as pd
 import numpy as np
 
@@ -27,10 +27,10 @@ def _limpiar_texto(df):
 
 def _convertir_notas_a_numerico(df):
     """
-    Convierte notas numéricas a float, reemplazando comas por puntos
-    y manejando valores vacíos o nulos de forma segura.
+    Convierte notas numericas a float, reemplazando comas por puntos
+    y manejando valores vacios o nulos de forma segura.
     """
-    # Columnas de notas típicas
+    # Columnas de notas tipicas
     columnas_notas = [
         'PRIMER_PARCIAL', 'SEGUNDO_PARCIAL', 'EXAMEN_FINAL',
         'NOTA_PONDERADA_REFERENCIA', 'NOTA_FINAL_ALMACENADA',
@@ -43,36 +43,58 @@ def _convertir_notas_a_numerico(df):
             df[col] = df[col].astype(str)
             # Reemplazar comas por puntos
             df[col] = df[col].str.replace(',', '.', regex=False)
-            # Reemplazar valores vacíos o 'nan', 'None', etc.
+            # Reemplazar valores vacios o 'nan', 'None', etc.
             df[col] = df[col].replace(['nan', 'None', '', 'NaN'], np.nan)
-            # Convertir a numérico
+            # Convertir a numerico
             df[col] = pd.to_numeric(df[col], errors='coerce')
     
     return df
 
 
+def _encontrar_archivo_excel():
+    """Encuentra el unico archivo Excel disponible en la carpeta data."""
+    carpeta_data = Path("data")
+    archivos_excel = sorted(
+        archivo for archivo in carpeta_data.iterdir()
+        if archivo.is_file() and archivo.suffix.lower() in {".xlsx", ".xls", ".xlsm"}
+    ) if carpeta_data.exists() else []
+
+    if not archivos_excel:
+        raise FileNotFoundError(
+            "No se encontro ningun archivo Excel dentro de la carpeta data."
+        )
+
+    if len(archivos_excel) > 1:
+        nombres = ", ".join(archivo.name for archivo in archivos_excel)
+        raise ValueError(
+            "Debe existir un solo archivo Excel dentro de la carpeta data. "
+            f"Archivos encontrados: {nombres}"
+        )
+
+    return str(archivos_excel[0])
+
+
 def cargar_datos_limpios(ruta_excel=None):
     """
-    Lee el archivo Excel ubicado en data/Consolidado_Calificaciones_2023_2026 v2 .xlsx
-    cargando las 4 hojas de registros académicos (2023, 2024, 2025, 2026).
+    Lee el unico archivo Excel disponible en la carpeta data
+    cargando las 4 hojas de registros academicos (2023, 2024, 2025, 2026).
     
-    Limpia los datos, convierte notas a numérico y crea columna TIPO_REGISTRO
+    Limpia los datos, convierte notas a numerico y crea columna TIPO_REGISTRO
     basada en ESTADO_BOLETIN. Respeta CALIDAD_CIERRE para identificar periodos
-    históricos frente al periodo en curso.
+    historicos frente al periodo en curso.
     
     Returns:
         DataFrame consolidado con todas las hojas
     """
     if ruta_excel is None:
-        # Ruta por defecto relativa al proyecto
-        ruta_excel = os.path.join('data', 'Consolidado_Calificaciones_2023_2026 v2 .xlsx')
+        ruta_excel = _encontrar_archivo_excel()
     
     # Hojas a cargar
     hojas_a_cargar = [
-        '2023 registros  académicos',
-        '2024 registros  académicos',
-        '2025 registros  académicos',
-        '2026 registros  académicos'
+        '2023 registros  academicos',
+        '2024 registros  academicos',
+        '2025 registros  academicos',
+        '2026 registros  academicos'
     ]
     
     # Leer archivo Excel
@@ -85,14 +107,14 @@ def cargar_datos_limpios(ruta_excel=None):
         if hoja in excel_file.sheet_names:
             nombre_hoja = hoja
         else:
-            # Buscar por patrón
+            # Buscar por patron
             nombre_hoja = None
             for s in excel_file.sheet_names:
                 if str(s).strip().startswith(hoja.split()[0]):
                     nombre_hoja = s
                     break
             if nombre_hoja is None:
-                raise ValueError(f"No se encontró la hoja para {hoja}")
+                raise ValueError(f"No se encontro la hoja para {hoja}")
         
         # Leer hoja
         df = pd.read_excel(excel_file, sheet_name=nombre_hoja)
