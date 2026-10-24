@@ -4,7 +4,7 @@ Dashboard web para explorar el rendimiento académico del Instituto Tecnológico
 
 ## Características
 
-- Autenticación básica para restringir el acceso al dashboard.
+- Autenticación por roles para restringir el acceso al dashboard.
 - Carga y limpieza automática del consolidado Excel.
 - Filtros globales por:
   - Periodo académico.
@@ -137,7 +137,15 @@ Después abre la URL mostrada por Streamlit, normalmente:
 http://localhost:8501
 ```
 
-El dashboard inicia con una pantalla de acceso. La contraseña actualmente está definida directamente en `app.py` para el entorno de desarrollo; antes de desplegar la aplicación se recomienda reemplazar esa autenticación por un mecanismo seguro y gestionar la credencial mediante secretos.
+El dashboard inicia con una pantalla de acceso por usuario y contraseña. Las cuentas se almacenan localmente en `auth_users.json` usando hashes PBKDF2; el archivo está excluido de Git.
+
+### Roles de acceso
+
+- **Administrador principal (`admin`):** acceso a todas las pestañas, filtros, análisis y gestión de datos. Puede crear cuentas de profesores.
+- **Director de carrera (`director`):** acceso a la visión global y al análisis por estudiante, sin acceso para cargar o reemplazar el Excel.
+- **Profesor:** acceso a la visión global limitada a las materias donde aparece como docente en el Excel. No puede consultar la gestión de datos ni perfiles de estudiantes.
+
+Las contraseñas iniciales se entregan al administrador por el canal de configuración y deben cambiarse antes de desplegar la aplicación fuera del entorno local. El administrador crea nuevas cuentas desde **Gestión de Datos → Crear cuenta de profesor**.
 
 ## Uso del dashboard
 
@@ -192,12 +200,3 @@ Antes de subir cambios:
 - La actualización administrativa sobrescribe el archivo consolidado local.
 - El análisis con IA requiere conectividad, una API key válida y disponibilidad del modelo configurado.
 - No hay una suite de pruebas automatizadas incluida actualmente.
-
-## Privacidad y publicación
-
-Antes de crear el primer commit, comprueba:
-
-```powershell
-git status --short
-git check-ignore -v data contexto.pdf graficas.docx CONTEXT_KEY.md
-```

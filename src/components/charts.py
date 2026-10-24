@@ -1,696 +1,5 @@
-import plotly.express as px
-import plotly.graph_objects as go
 import pandas as pd
-import numpy as np
-
-
-COLORES_INSTITUCIONALES = {
-    'azul': '#1f77b4',
-    'rojo': '#d62728',
-    'verde': '#2ca02c',
-    'naranja': '#ff7f0e',
-    'morado': '#9467bd',
-    'cafe': '#8c564b'
-}
-
-
-def graficar_evolucion_historica(df):
-    """
-    Grafico combinado. Barras apiladas 100% (Aprobo/Perdio) y una linea 
-    superpuesta para el Promedio y Mediana a lo largo del 'PERIODO'.
-    """
-    if df is None or df.empty:
-        fig = go.Figure()
-        fig.update_layout(title="Evolucion Historica - Sin datos disponibles")
-        return fig
-    
-    df_trabajo = df.copy()
-    
-    # Filtrar periodos historicos
-    if 'CALIDAD_CIERRE' in df_trabajo.columns:
-        df_trabajo = df_trabajo[
-            ~df_trabajo['CALIDAD_CIERRE'].astype(str).str.upper().str.contains('PERIODO_EN_CURSO_NO_FINAL', na=False)
-        ].copy()
-    
-    # Filtrar CON_BOLETIN
-    if 'TIPO_REGISTRO' in df_trabajo.columns:
-        df_trabajo = df_trabajo[df_trabajo['TIPO_REGISTRO'] == 'CON_BOLETIN'].copy()
-    
-    if df_trabajo.empty or 'PERIODO' not in df_trabajo.columns:
-        fig = go.Figure()
-        fig.update_layout(title="Evolucion Historica - Sin datos disponibles")
-        return fig
-    
-    periodos = sorted(df_trabajo['PERIODO'].dropna().unique())
-    fig = go.Figure()
-    
-    aprobados_pct = []
-    reprobados_pct = []
-    promedios = []
-    medianas = []
-    
-    for periodo in periodos:
-        df_p = df_trabajo[df_trabajo['PERIODO'] == periodo]
-        total = len(df_p)
-        
-        if total > 0 and 'ESTADO_MATERIA' in df_p.columns:
-            aprob = len(df_p[df_p['ESTADO_MATERIA'].astype(str).str.upper().str.contains('APROBO', na=False)])
-            rep = len(df_p[df_p['ESTADO_MATERIA'].astype(str).str.upper().str.contains('PERDIO', na=False)])
-            otros = total - aprob - rep
-            if aprob + rep > 0:
-                aprobados_pct.append((aprob / (aprob + rep)) * 100)
-                reprobados_pct.append((rep / (aprob + rep)) * 100)
-            else:
-                aprobados_pct.append(0)
-                reprobados_pct.append(0)
-        else:
-            aprobados_pct.append(0)
-            reprobados_pct.append(0)
-        
-        if 'DEFINITIVA_ALMACENADA' in df_p.columns:
-            notas = df_p['DEFINITIVA_ALMACENADA'].dropna()
-            if not notas.empty:
-                promedios.append(notas.mean())
-                medianas.append(notas.median())
-            else:
-                promedios.append(np.nan)
-                medianas.append(np.nan)
-        else:
-            promedios.append(np.nan)
-            medianas.append(np.nan)
-    
-    # Barras apiladas 100%
-    fig.add_trace(go.Bar(
-        name='Aprobo',
-        x=periodos,
-        y=aprobados_pct,
-        marker_color=COLORES_INSTITUCIONALES['verde'],
-        text=[f'{x:.1f}%' for x in aprobados_pct],
-        textposition='inside'
-    ))
-    
-    fig.add_trace(go.Bar(
-        name='Perdio',
-        x=periodos,
-        y=reprobados_pct,
-        marker_color=COLORES_INSTITUCIONALES['rojo'],
-        text=[f'{x:.1f}%' for x in reprobados_pct],
-        textposition='inside'
-    ))
-    
-    # Lineas superpuestas para promedio y mediana
-    fig.add_trace(go.Scatter(
-        name='Promedio',
-        x=periodos,
-        y=promedios,
-        mode='lines+markers',
-        yaxis='y2',
-        line=dict(color=COLORES_INSTITUCIONALES['azul'], width=3),
-        marker=dict(size=8)
-    ))
-    
-    fig.add_trace(go.Scatter(
-        name='Mediana',
-        x=periodos,
-        y=medianas,
-        mode='lines+markers',
-        yaxis='y2',
-        line=dict(color=COLORES_INSTITUCIONALES['naranja'], width=3, dash='dash'),
-        marker=dict(size=8)
-    ))
-    
-    fig.update_layout(
-        title='Evolucion Historica - Aprobacion/Reprobacion y Promedio',
-        barmode='stack',
-        xaxis_title='Periodo Academico',
-        yaxis_title='% de Estudiantes',
-        yaxis=dict(range=[0, 100]),
-        yaxis2=dict(
-            title='Nota (0.0 - 5.0)',
-            overlaying='y',
-            side='right',
-            range=[0, 5]
-        ),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
-    
-    return fig
-
-
-def graficar_ranking_causas(df):
-    """
-    Grafico de barras horizontales ordenado por % de reprobacion,
-    dividiendo las barras por causa (Perdida Activa vs. 'TODOS_EN_CERO_VERIFICAR').
-    """
-    if df is None or df.empty:
-        fig = go.Figure()
-        fig.update_layout(title="Ranking de Causas de Reprobacion - Sin datos disponibles")
-        return fig
-    
-    df_trabajo = df.copy()
-    
-    # Filtrar periodos historicos
-    if 'CALIDAD_CIERRE' in df_trabajo.columns:
-        df_trabajo = df_trabajo[
-            ~df_trabajo['CALIDAD_CIERRE'].astype(str).str.upper().str.contains('PERIODO_EN_CURSO_NO_FINAL', na=False)
-        ].copy()
-    
-    if 'TIPO_REGISTRO' in df_trabajo.columns:
-        df_trabajo = df_trabajo[df_trabajo['TIPO_REGISTRO'] == 'CON_BOLETIN'].copy()
-    
-    if df_trabajo.empty or 'ASIGNATURA' not in df_trabajo.columns:
-        fig = go.Figure()
-        fig.update_layout(title="Ranking de Causas - Sin datos disponibles")
-        return fig
-    
-    resultados = []
-    
-    for asignatura, grupo in df_trabajo.groupby('ASIGNATURA'):
-        reprobados = grupo
-        if 'ESTADO_MATERIA' in grupo.columns:
-            reprobados = grupo[grupo['ESTADO_MATERIA'].astype(str).str.upper().str.contains('PERDIO', na=False)]
-        
-        if reprobados.empty:
-            continue
-        
-        total_reprobados = len(reprobados)
-        perdida_activa = 0
-        cero_verificar = 0
-        
-        if 'OBSERVACION_NOTAS' in reprobados.columns:
-            perdida_activa = len(reprobados[~reprobados['OBSERVACION_NOTAS'].astype(str).str.upper().str.contains('TODOS_EN_CERO_VERIFICAR', na=False)])
-            cero_verificar = len(reprobados[reprobados['OBSERVACION_NOTAS'].astype(str).str.upper().str.contains('TODOS_EN_CERO_VERIFICAR', na=False)])
-        else:
-            perdida_activa = total_reprobados
-        
-        if 'DEFINITIVA_ALMACENADA' in grupo.columns:
-            notas_grp = grupo['DEFINITIVA_ALMACENADA'].dropna()
-            if not notas_grp.empty:
-                total_inscritos = len(notas_grp)
-            else:
-                total_inscritos = len(grupo)
-        else:
-            total_inscritos = len(grupo)
-        
-        if total_inscritos == 0:
-            continue
-        
-        pct_reprobacion = (total_reprobados / total_inscritos) * 100
-        
-        resultados.append({
-            'ASIGNATURA': str(asignatura)[:50] + '...' if len(str(asignatura)) > 50 else str(asignatura),
-            'perdida_activa': perdida_activa,
-            'cero_verificar': cero_verificar,
-            'pct_reprobacion': pct_reprobacion
-        })
-    
-    if not resultados:
-        fig = go.Figure()
-        fig.update_layout(title="Ranking de Causas - Sin reprobados")
-        return fig
-    
-    df_res = pd.DataFrame(resultados)
-    df_res = df_res.sort_values('pct_reprobacion', ascending=True).tail(15)
-    
-    fig = go.Figure()
-    
-    fig.add_trace(go.Bar(
-        name='Perdida Activa',
-        y=df_res['ASIGNATURA'],
-        x=df_res['perdida_activa'],
-        orientation='h',
-        marker_color=COLORES_INSTITUCIONALES['naranja']
-    ))
-    
-    fig.add_trace(go.Bar(
-        name='TODOS_EN_CERO_VERIFICAR',
-        y=df_res['ASIGNATURA'],
-        x=df_res['cero_verificar'],
-        orientation='h',
-        marker_color=COLORES_INSTITUCIONALES['rojo']
-    ))
-    
-    fig.update_layout(
-        title='Ranking de Causas de Reprobacion (Top 15)',
-        barmode='stack',
-        xaxis_title='Numero de Estudiantes Reprobados',
-        yaxis_title='Asignatura',
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
-    
-    return fig
-
-
-def graficar_mapa_calor(df):
-    """
-    Heatmap matricial cruzando 'SEMESTRE_ASIGNATURA' vs 'PERIODO',
-    donde la intensidad del color refleje el % de reprobacion.
-    """
-    if df is None or df.empty:
-        fig = go.Figure()
-        fig.update_layout(title="Mapa de Calor Curricular - Sin datos disponibles")
-        return fig
-    
-    df_trabajo = df.copy()
-    
-    if 'TIPO_REGISTRO' in df_trabajo.columns:
-        df_trabajo = df_trabajo[df_trabajo['TIPO_REGISTRO'] == 'CON_BOLETIN'].copy()
-    
-    if df_trabajo.empty or 'SEMESTRE_ASIGNATURA' not in df_trabajo.columns or 'PERIODO' not in df_trabajo.columns:
-        fig = go.Figure()
-        fig.update_layout(title="Mapa de Calor Curricular - Sin datos suficientes")
-        return fig
-    
-    # Crear matriz
-    semestres = sorted(df_trabajo['SEMESTRE_ASIGNATURA'].dropna().unique())
-    periodos = sorted(df_trabajo['PERIODO'].dropna().unique())
-    
-    matriz = np.zeros((len(semestres), len(periodos)))
-    
-    for i, sem in enumerate(semestres):
-        for j, per in enumerate(periodos):
-            df_cell = df_trabajo[(df_trabajo['SEMESTRE_ASIGNATURA'] == sem) & (df_trabajo['PERIODO'] == per)]
-            if df_cell.empty:
-                matriz[i, j] = np.nan
-                continue
-            
-            reprobados = 0
-            total = len(df_cell)
-            if 'ESTADO_MATERIA' in df_cell.columns:
-                reprobados = len(df_cell[df_cell['ESTADO_MATERIA'].astype(str).str.upper().str.contains('PERDIO', na=False)])
-            elif 'DEFINITIVA_ALMACENADA' in df_cell.columns:
-                notas = df_cell['DEFINITIVA_ALMACENADA'].dropna()
-                reprobados = len(notas[notas < 3.0])
-                total = len(notas) if len(notas) > 0 else total
-            
-            if total > 0:
-                matriz[i, j] = (reprobados / total) * 100
-            else:
-                matriz[i, j] = np.nan
-    
-    fig = go.Figure(data=go.Heatmap(
-        z=matriz,
-        x=periodos,
-        y=[str(s) for s in semestres],
-        colorscale='Reds',
-        text=np.round(matriz, 1),
-        texttemplate='%{text}%',
-        colorbar=dict(title="% Reprobacion")
-    ))
-    
-    fig.update_layout(
-        title='Mapa de Calor Curricular - % de Reprobacion por Semestre y Periodo',
-        xaxis_title='Periodo Academico',
-        yaxis_title='Semestre'
-    )
-    
-    return fig
-
-
-def graficar_distribucion_notas(df):
-    """
-    Boxplots de 'DEFINITIVA_ALMACENADA' agrupados por 'GRUPO' o 'DOCENTE' 
-    para comparar la dispersion.
-    """
-    if df is None or df.empty:
-        fig = go.Figure()
-        fig.update_layout(title="Distribucion de Notas - Sin datos disponibles")
-        return fig
-    
-    df_trabajo = df.copy()
-    
-    if 'TIPO_REGISTRO' in df_trabajo.columns:
-        df_trabajo = df_trabajo[df_trabajo['TIPO_REGISTRO'] == 'CON_BOLETIN'].copy()
-    
-    if df_trabajo.empty or 'DEFINITIVA_ALMACENADA' not in df_trabajo.columns:
-        fig = go.Figure()
-        fig.update_layout(title="Distribucion de Notas - Sin datos disponibles")
-        return fig
-    
-    # Preferir agrupar por GRUPO, sino por DOCENTE
-    grupo_col = None
-    if 'GRUPO' in df_trabajo.columns and df_trabajo['GRUPO'].notna().sum() > 0:
-        grupo_col = 'GRUPO'
-    elif 'DOCENTE' in df_trabajo.columns:
-        grupo_col = 'DOCENTE'
-    
-    if grupo_col is None:
-        fig = px.box(df_trabajo, y='DEFINITIVA_ALMACENADA', title='Distribucion de Notas')
-        fig.update_layout(yaxis_title='Nota Definitiva', yaxis_range=[0, 5])
-        return fig
-    
-    # Limitar a top grupos/docentes con mas datos
-    top_items = df_trabajo[grupo_col].value_counts().head(10).index
-    df_plot = df_trabajo[df_trabajo[grupo_col].isin(top_items)].copy()
-    
-    fig = px.box(
-        df_plot,
-        x=grupo_col,
-        y='DEFINITIVA_ALMACENADA',
-        title=f'Distribucion de Notas por {grupo_col}',
-        color=grupo_col
-    )
-    
-    fig.update_layout(
-        xaxis_title=grupo_col,
-        yaxis_title='Nota Definitiva',
-        yaxis_range=[0, 5],
-        showlegend=False
-    )
-    
-    return fig
-
-
-def graficar_curva_progreso(df):
-    """
-    Grafico de lineas que muestre la caida del promedio desde 'PRIMER_PARCIAL' 
-    a 'SEGUNDO_PARCIAL' hasta 'EXAMEN_FINAL'.
-    """
-    if df is None or df.empty:
-        fig = go.Figure()
-        fig.update_layout(title="Curva de Progreso por Cortes - Sin datos disponibles")
-        return fig
-    
-    df_trabajo = df.copy()
-    
-    if 'TIPO_REGISTRO' in df_trabajo.columns:
-        df_trabajo = df_trabajo[df_trabajo['TIPO_REGISTRO'] == 'CON_BOLETIN'].copy()
-    
-    cortes = ['PRIMER_PARCIAL', 'SEGUNDO_PARCIAL', 'EXAMEN_FINAL']
-    promedios_cortes = []
-    
-    for corte in cortes:
-        if corte in df_trabajo.columns:
-            notas = df_trabajo[corte].dropna()
-            # Excluir ceros en segundo parcial/examen final si son mayoritariamente ceros
-            if corte in ['SEGUNDO_PARCIAL', 'EXAMEN_FINAL']:
-                notas_validas = notas[notas > 0]
-                if not notas_validas.empty:
-                    promedios_cortes.append(notas_validas.mean())
-                else:
-                    promedios_cortes.append(np.nan)
-            else:
-                notas_validas = notas[notas >= 0]
-                if not notas_validas.empty:
-                    promedios_cortes.append(notas_validas.mean())
-                else:
-                    promedios_cortes.append(np.nan)
-        else:
-            promedios_cortes.append(np.nan)
-    
-    fig = go.Figure()
-    
-    fig.add_trace(go.Scatter(
-        x=['Primer Parcial', 'Segundo Parcial', 'Examen Final'],
-        y=promedios_cortes,
-        mode='lines+markers',
-        name='Promedio',
-        line=dict(color=COLORES_INSTITUCIONALES['azul'], width=3),
-        marker=dict(size=10)
-    ))
-    
-    fig.update_layout(
-        title='Curva de Progreso por Cortes Evaluativos',
-        xaxis_title='Corte Evaluativo',
-        yaxis_title='Promedio',
-        yaxis_range=[0, 5]
-    )
-    
-    return fig
-
-
-def graficar_matriz_riesgo(df):
-    """
-    Grafico de burbujas. Eje X: Numero de inscritos. Eje Y: % de reprobacion.
-    Tamano de burbuja: Estudiantes inscritos. Color: Semestre de la asignatura.
-    """
-    if df is None or df.empty:
-        fig = go.Figure()
-        fig.update_layout(title="Matriz de Riesgo vs Volumen - Sin datos disponibles")
-        return fig
-    
-    df_trabajo = df.copy()
-    
-    if 'TIPO_REGISTRO' in df_trabajo.columns:
-        df_trabajo = df_trabajo[df_trabajo['TIPO_REGISTRO'] == 'CON_BOLETIN'].copy()
-    
-    if df_trabajo.empty or 'ASIGNATURA' not in df_trabajo.columns:
-        fig = go.Figure()
-        fig.update_layout(title="Matriz de Riesgo vs Volumen - Sin datos disponibles")
-        return fig
-    
-    resultados = []
-    
-    for asignatura, grupo in df_trabajo.groupby('ASIGNATURA'):
-        num_inscritos = len(grupo)
-        if num_inscritos < 5:  # Filtrar con minimo de inscritos
-            continue
-        
-        reprobados = 0
-        if 'ESTADO_MATERIA' in grupo.columns:
-            reprobados = len(grupo[grupo['ESTADO_MATERIA'].astype(str).str.upper().str.contains('PERDIO', na=False)])
-        elif 'DEFINITIVA_ALMACENADA' in grupo.columns:
-            notas = grupo['DEFINITIVA_ALMACENADA'].dropna()
-            reprobados = len(notas[notas < 3.0])
-            num_inscritos = len(notas)
-        
-        if num_inscritos == 0:
-            continue
-        
-        pct_reprobacion = (reprobados / num_inscritos) * 100
-        semestre = grupo['SEMESTRE_ASIGNATURA'].iloc[0] if 'SEMESTRE_ASIGNATURA' in grupo.columns else 'N/A'
-        
-        resultados.append({
-            'ASIGNATURA': str(asignatura)[:40] + '...' if len(str(asignatura)) > 40 else str(asignatura),
-            'num_inscritos': num_inscritos,
-            'pct_reprobacion': pct_reprobacion,
-            'semestre': semestre
-        })
-    
-    if not resultados:
-        fig = go.Figure()
-        fig.update_layout(title="Matriz de Riesgo vs Volumen - Sin datos suficientes")
-        return fig
-    
-    df_res = pd.DataFrame(resultados)
-    
-    fig = px.scatter(
-        df_res,
-        x='num_inscritos',
-        y='pct_reprobacion',
-        size='num_inscritos',
-        color='semestre',
-        hover_name='ASIGNATURA',
-        title='Matriz de Riesgo vs Volumen de Impacto',
-        labels={
-            'num_inscritos': 'Numero de Inscritos',
-            'pct_reprobacion': '% de Reprobacion',
-            'semestre': 'Semestre'
-        }
-    )
-    
-    fig.update_layout(
-        xaxis_title='Numero de Inscritos (n)',
-        yaxis_title='% de Reprobacion',
-        yaxis_range=[0, 100]
-    )
-    
-    return fig
-
-
-def graficar_radar_alertas(df):
-    """
-    Barras divergentes enfocadas solo en el 'PRIMER_PARCIAL' para el periodo en curso.
-    """
-    if df is None or df.empty:
-        fig = go.Figure()
-        fig.update_layout(title="Alertas Periodo en Curso - Sin datos disponibles")
-        return fig
-    
-    df_trabajo = df.copy()
-    
-    # Filtrar periodo en curso
-    df_curso = pd.DataFrame()
-    if 'CALIDAD_CIERRE' in df_trabajo.columns:
-        df_curso = df_trabajo[
-            df_trabajo['CALIDAD_CIERRE'].astype(str).str.upper().str.contains('PERIODO_EN_CURSO_NO_FINAL', na=False)
-        ].copy()
-    
-    if df_curso.empty:
-        fig = go.Figure()
-        fig.update_layout(title="Alertas Periodo en Curso - No hay periodo en curso")
-        return fig
-    
-    if 'TIPO_REGISTRO' in df_curso.columns:
-        df_curso = df_curso[df_curso['TIPO_REGISTRO'] == 'CON_BOLETIN'].copy()
-    
-    if df_curso.empty or 'PRIMER_PARCIAL' not in df_curso.columns or 'ASIGNATURA' not in df_curso.columns:
-        fig = go.Figure()
-        fig.update_layout(title="Alertas Periodo en Curso - Sin datos de PRIMER_PARCIAL")
-        return fig
-    
-    # Agrupar por asignatura
-    resultados = []
-    for asignatura, grupo in df_curso.groupby('ASIGNATURA'):
-        notas_p1 = grupo['PRIMER_PARCIAL'].dropna()
-        notas_p1_validas = notas_p1[notas_p1 >= 0]
-        if notas_p1_validas.empty:
-            continue
-        
-        total = len(notas_p1_validas)
-        en_riesgo = len(notas_p1_validas[notas_p1_validas < 3.0])
-        pct_riesgo = (en_riesgo / total) * 100
-        
-        if en_riesgo > 0:
-            resultados.append({
-                'ASIGNATURA': str(asignatura)[:50] + '...' if len(str(asignatura)) > 50 else str(asignatura),
-                'en_riesgo': en_riesgo,
-                'pct_riesgo': pct_riesgo,
-                'total': total
-            })
-    
-    if not resultados:
-        fig = go.Figure()
-        fig.update_layout(title="Alertas Periodo en Curso - Sin estudiantes en riesgo")
-        return fig
-    
-    df_res = pd.DataFrame(resultados)
-    df_res = df_res.sort_values('pct_riesgo')
-    
-    fig = go.Figure()
-    
-    fig.add_trace(go.Bar(
-        name='Estudiantes en Riesgo (< 3.0)',
-        y=df_res['ASIGNATURA'],
-        x=df_res['en_riesgo'],
-        orientation='h',
-        marker_color=COLORES_INSTITUCIONALES['rojo'],
-        text=df_res['pct_riesgo'].apply(lambda x: f'{x:.1f}%'),
-        textposition='outside'
-    ))
-    
-    fig.update_layout(
-        title='Alertas por Asignatura - Periodo en Curso (Basado en PRIMER_PARCIAL)',
-        xaxis_title='Numero de Estudiantes en Riesgo',
-        yaxis_title='Asignatura',
-        showlegend=False
-    )
-    
-    return fig
-
-
-def graficar_trayectoria_individual(df_estudiante, df_cohorte=None):
-    """
-    Grafico de lineas que muestre la nota del estudiante sobre una banda sombreada
-    que represente el percentil 25 al 75 de su semestre.
-    """
-    if df_estudiante is None or df_estudiante.empty:
-        fig = go.Figure()
-        fig.update_layout(title="Trayectoria Individual - Sin datos")
-        return fig
-    
-    df_est = df_estudiante.copy()
-    
-    # Filtrar solo CON_BOLETIN y periodos historicos
-    if 'TIPO_REGISTRO' in df_est.columns:
-        df_est = df_est[df_est['TIPO_REGISTRO'] == 'CON_BOLETIN'].copy()
-    
-    if 'CALIDAD_CIERRE' in df_est.columns:
-        df_est = df_est[
-            ~df_est['CALIDAD_CIERRE'].astype(str).str.upper().str.contains('PERIODO_EN_CURSO_NO_FINAL', na=False)
-        ].copy()
-    
-    if df_est.empty or 'PERIODO' not in df_est.columns or 'DEFINITIVA_ALMACENADA' not in df_est.columns:
-        fig = go.Figure()
-        fig.update_layout(title="Trayectoria Individual - Sin datos historicos")
-        return fig
-    
-    # Agrupar por periodo
-    trayectoria = df_est.groupby('PERIODO')['DEFINITIVA_ALMACENADA'].mean().reset_index()
-    trayectoria = trayectoria.sort_values('PERIODO')
-    
-    fig = go.Figure()
-    
-    # Si tenemos cohorte, agregar banda de percentiles
-    if df_cohorte is not None and not df_cohorte.empty:
-        df_coh = df_cohorte.copy()
-        if 'TIPO_REGISTRO' in df_coh.columns:
-            df_coh = df_coh[df_coh['TIPO_REGISTRO'] == 'CON_BOLETIN'].copy()
-        if 'CALIDAD_CIERRE' in df_coh.columns:
-            df_coh = df_coh[
-                ~df_coh['CALIDAD_CIERRE'].astype(str).str.upper().str.contains('PERIODO_EN_CURSO_NO_FINAL', na=False)
-            ].copy()
-        
-        if 'PERIODO' in df_coh.columns and 'DEFINITIVA_ALMACENADA' in df_coh.columns:
-            percentiles = []
-            for periodo in trayectoria['PERIODO']:
-                df_p = df_coh[df_coh['PERIODO'] == periodo]
-                notas = df_p['DEFINITIVA_ALMACENADA'].dropna()
-                if not notas.empty:
-                    p25 = notas.quantile(0.25)
-                    p75 = notas.quantile(0.75)
-                    percentiles.append((p25, p75))
-                else:
-                    percentiles.append((np.nan, np.nan))
-            
-            p25_vals = [p[0] for p in percentiles]
-            p75_vals = [p[1] for p in percentiles]
-            
-            # Banda sombreada percentil 25-75
-            fig.add_trace(go.Scatter(
-                name='Percentil 75',
-                x=trayectoria['PERIODO'],
-                y=p75_vals,
-                mode='lines',
-                line=dict(width=0),
-                showlegend=False
-            ))
-            
-            fig.add_trace(go.Scatter(
-                name='Percentil 25-75',
-                x=trayectoria['PERIODO'],
-                y=p25_vals,
-                mode='lines',
-                fill='tonexty',
-                fillcolor='rgba(31, 119, 180, 0.2)',
-                line=dict(width=0),
-                showlegend=True
-            ))
-    
-    # Trayectoria del estudiante
-    fig.add_trace(go.Scatter(
-        name='Estudiante',
-        x=trayectoria['PERIODO'],
-        y=trayectoria['DEFINITIVA_ALMACENADA'],
-        mode='lines+markers',
-        line=dict(color=COLORES_INSTITUCIONALES['rojo'], width=3),
-        marker=dict(size=10)
-    ))
-    
-    fig.update_layout(
-        title='Trayectoria Individual vs Banda de Cohorte (Percentil 25-75)',
-        xaxis_title='Periodo Academico',
-        yaxis_title='Promedio',
-        yaxis_range=[0, 5],
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
-    
-    return fig
-
-
-# Aliases para compatibilidad
-def graficar_tendencia_historica(df):
-    """
-    Alias de graficar_evolucion_historica para compatibilidad con codigo existente.
-    """
-    return graficar_evolucion_historica(df)
-
-
-def graficar_top_mortalidad(df):
-    """
-    Alias de graficar_ranking_causas para compatibilidad con codigo existente.
-    """
-    return graficar_ranking_causas(df)
+import plotly.graph_objects as go
 
 
 def _preparar_tendencias(df):
@@ -721,15 +30,16 @@ def _preparar_tendencias(df):
 
 
 def _ordenar_periodos(periodos):
-    def clave(periodo):
-        texto = str(periodo).strip()
-        try:
-            anio, semestre = texto.split("-", 1)
-            return int(anio), int(semestre)
-        except (ValueError, TypeError):
-            return 9999, 9999
+    return sorted(periodos, key=_clave_periodo)
 
-    return sorted(periodos, key=clave)
+
+def _clave_periodo(periodo):
+    texto = str(periodo).strip()
+    try:
+        anio, semestre = texto.split("-", 1)
+        return int(anio), int(semestre)
+    except (ValueError, TypeError):
+        return 9999, 9999
 
 
 def _agrupar_tendencia(grupo):
@@ -742,34 +52,85 @@ def _agrupar_tendencia(grupo):
     return grupo.groupby("PERIODO").agg(**agregaciones)
 
 
-def graficar_tendencia_promedios(df):
-    """Muestra promedios general, aprobados y reprobados por periodo."""
+def _preparar_promedios_acumulados(trabajo):
+    """Calcula el promedio historico acumulado de cada estudiante por periodo."""
+    if "ID_ESTUDIANTE" not in trabajo.columns:
+        return pd.DataFrame()
+
+    periodos = _ordenar_periodos(trabajo["PERIODO"].unique())
+    registros = []
+    for periodo in periodos:
+        historico = trabajo[
+            trabajo["PERIODO"].map(
+                lambda valor: _clave_periodo(valor) <= _clave_periodo(periodo)
+            )
+        ]
+        acumulados = (
+            historico.groupby("ID_ESTUDIANTE")["DEFINITIVA_ALMACENADA"]
+            .mean()
+            .rename("promedio_acumulado")
+        )
+        evaluados = trabajo[trabajo["PERIODO"] == periodo][
+            ["ID_ESTUDIANTE"]
+        ].drop_duplicates()
+        evaluados = evaluados.merge(
+            acumulados,
+            left_on="ID_ESTUDIANTE",
+            right_index=True,
+            how="inner",
+        )
+        evaluados["PERIODO"] = periodo
+        registros.append(evaluados)
+
+    if not registros:
+        return pd.DataFrame()
+    return pd.concat(registros, ignore_index=True)
+
+
+def graficar_tendencia_promedios(df, periodos_visibles=None):
+    """Muestra promedios acumulados generales, aprobados y reprobados."""
     trabajo = _preparar_tendencias(df)
     fig = go.Figure()
-    if trabajo.empty:
+    estudiantes = _preparar_promedios_acumulados(trabajo)
+    if estudiantes.empty:
         fig.update_layout(
             title="Tendencia de promedios - Sin datos disponibles",
             height=650,
         )
         return fig
 
-    periodos = _ordenar_periodos(trabajo["PERIODO"].unique())
+    periodos = _ordenar_periodos(estudiantes["PERIODO"].unique())
+    if periodos_visibles is not None:
+        periodos = [
+            periodo for periodo in _ordenar_periodos(periodos_visibles)
+            if periodo in periodos
+        ]
+        estudiantes = estudiantes[estudiantes["PERIODO"].isin(periodos)]
+    if not periodos or estudiantes.empty:
+        fig.update_layout(
+            title="Tendencia de promedios - Sin datos disponibles",
+            height=650,
+        )
+        return fig
     series = [
-        ("Promedio general", trabajo, "#1f77b4"),
+        ("Promedio general", estudiantes, "#1f77b4"),
         (
-            "Promedio aprobados",
-            trabajo[trabajo["DEFINITIVA_ALMACENADA"] >= 3.0],
+            "Promedio acumulado >= 3.0",
+            estudiantes[estudiantes["promedio_acumulado"] >= 3.0],
             "#2ca02c",
         ),
         (
-            "Promedio reprobados",
-            trabajo[trabajo["DEFINITIVA_ALMACENADA"] < 3.0],
+            "Promedio acumulado < 3.0",
+            estudiantes[estudiantes["promedio_acumulado"] < 3.0],
             "#d62728",
         ),
     ]
 
     for nombre, grupo, color in series:
-        agrupado = _agrupar_tendencia(grupo)
+        agrupado = grupo.groupby("PERIODO").agg(
+            promedio=("promedio_acumulado", "mean"),
+            estudiantes=("ID_ESTUDIANTE", "nunique"),
+        )
         promedios = agrupado.reindex(periodos)
         valores = promedios["promedio"].round(2)
         conteos = promedios["estudiantes"].fillna(0).astype(int)
@@ -787,7 +148,8 @@ def graficar_tendencia_promedios(df):
                 connectgaps=False,
                 hovertemplate=(
                     "<b>%{x}</b><br>"
-                    "Estudiantes evaluados: %{customdata}<extra></extra>"
+                    "Estudiantes evaluados: %{customdata}<br>"
+                    "Promedio acumulado: %{y:.2f}<extra></extra>"
                 ),
             )
         )
@@ -800,7 +162,7 @@ def graficar_tendencia_promedios(df):
             categoryarray=periodos,
             title="Periodo academico",
         ),
-        yaxis_title="Promedio (0.0 - 5.0)",
+        yaxis_title="Promedio acumulado historico (0.0 - 5.0)",
         yaxis=dict(range=[0, 5]),
         hovermode="x unified",
         height=650,
@@ -809,8 +171,8 @@ def graficar_tendencia_promedios(df):
     return fig
 
 
-def graficar_tendencia_cantidades(df):
-    """Muestra cantidades de aprobados y reprobados por periodo."""
+def graficar_tendencia_cantidades(df, periodos_visibles=None):
+    """Muestra aprobados y reprobados por materia y periodo."""
     trabajo = _preparar_tendencias(df)
     if trabajo.empty:
         fig = go.Figure()
@@ -818,25 +180,34 @@ def graficar_tendencia_cantidades(df):
         return fig
 
     periodos = _ordenar_periodos(trabajo["PERIODO"].dropna().unique())
+    if periodos_visibles is not None:
+        periodos = [
+            periodo for periodo in _ordenar_periodos(periodos_visibles)
+            if periodo in periodos
+        ]
+        trabajo = trabajo[trabajo["PERIODO"].isin(periodos)]
+    if not periodos or trabajo.empty:
+        fig.update_layout(title="Tendencia de cantidades - Sin datos disponibles")
+        return fig
     fig = go.Figure()
 
     for nombre, condicion, color in (
-        (
-            "Aprobados",
-            trabajo["DEFINITIVA_ALMACENADA"] >= 3.0,
-            "#2ca02c",
-        ),
-        (
-            "Reprobados",
-            trabajo["DEFINITIVA_ALMACENADA"] < 3.0,
-            "#d62728",
-        ),
+        ("Aprobados", trabajo["DEFINITIVA_ALMACENADA"] >= 3.0, "#2ca02c"),
+        ("Reprobados", trabajo["DEFINITIVA_ALMACENADA"] < 3.0, "#d62728"),
     ):
         grupo = trabajo[condicion]
-        conteos = _agrupar_tendencia(grupo)["estudiantes"].reindex(
-            periodos, fill_value=0
+        columna_conteo = (
+            "ID_ESTUDIANTE"
+            if "ID_ESTUDIANTE" in grupo.columns
+            else "DEFINITIVA_ALMACENADA"
         )
-        conteos = conteos.astype(int)
+        agrupado = grupo.groupby("PERIODO").agg(
+            cantidad=(columna_conteo, "nunique" if "ID_ESTUDIANTE" in grupo.columns else "size"),
+            promedio=("DEFINITIVA_ALMACENADA", "mean"),
+        ).reindex(periodos)
+        conteos = agrupado["cantidad"].fillna(0).astype(int)
+        promedios = agrupado["promedio"].round(2)
+        customdata = list(zip(conteos, promedios))
         fig.add_trace(
             go.Scatter(
                 name=nombre,
@@ -845,12 +216,14 @@ def graficar_tendencia_cantidades(df):
                 mode="lines+markers+text",
                 text=conteos.astype(str),
                 textposition="top center",
-                customdata=conteos,
+                customdata=customdata,
                 line=dict(color=color, width=3),
                 marker=dict(size=9),
                 hovertemplate=(
                     "<b>%{x}</b><br>"
-                    "Estudiantes: %{customdata}<extra></extra>"
+                    "Estudiantes: %{customdata[0]}<br>"
+                    "Promedio nota definitiva: %{customdata[1]:.2f}"
+                    "<extra></extra>"
                 ),
             )
         )

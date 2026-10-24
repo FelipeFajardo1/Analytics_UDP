@@ -15,6 +15,7 @@ from src.components.charts import (
 )
 from src.components.student_profile import mostrar_ficha_estudiante
 from src.services.ai_copilot import generar_analisis_ia, explicar_grafico_ia
+from src.services.auth import authenticate, create_professor, load_users
 
 
 st.set_page_config(
@@ -31,6 +32,17 @@ def cargar_datos():
     return cargar_datos_limpios()
 
 
+def _filtrar_datos_por_rol(df, usuario):
+    if usuario.get("role") != "profesor":
+        return df
+    if "DOCENTE" not in df.columns:
+        return df.iloc[0:0].copy()
+    nombre_docente = usuario.get("teacher_name", "").strip().upper()
+    return df[
+        df["DOCENTE"].astype(str).str.strip().str.upper() == nombre_docente
+    ].copy()
+
+
 def main():
     # Sistema de autenticacion
     if 'autenticado' not in st.session_state:
@@ -43,10 +55,17 @@ def main():
         col_login1, col_login2, col_login3 = st.columns([1, 2, 1])
         with col_login2:
             st.markdown("---")
-            password = st.text_input("Contrasena", type="password", placeholder="Ingrese la contrasena")
+            username = st.text_input("Usuario", placeholder="Ingrese su usuario")
+            password = st.text_input(
+                "Contrasena",
+                type="password",
+                placeholder="Ingrese la contrasena",
+            )
             if st.button("Ingresar", width="stretch"):
-                if password == "adminITP2026":
+                usuario = authenticate(username, password)
+                if usuario is not None:
                     st.session_state.autenticado = True
+                    st.session_state.usuario = usuario
                     st.rerun()
                 else:
                     st.error("Contrasena incorrecta. Acceso denegado.")
@@ -55,10 +74,16 @@ def main():
     
     st.title("Analitica Academica ITP")
     st.markdown("Sistema de analisis del rendimiento academico para la toma de decisiones")
+    usuario = st.session_state.get("usuario", {})
+    rol = usuario.get("role", "")
+    st.sidebar.caption(
+        f"Sesion: {usuario.get('display_name', 'Usuario')} ({rol})"
+    )
     
     # Boton de cerrar sesion
     if st.sidebar.button("Cerrar Sesion"):
         st.session_state.autenticado = False
+        st.session_state.pop("usuario", None)
         st.rerun()
     
     # API Key para IA
@@ -73,14 +98,20 @@ def main():
     
     # Cargar datos
     with st.spinner("Cargando y limpiando datos..."):
-        df = cargar_datos()
+        df = _filtrar_datos_por_rol(cargar_datos(), usuario)
     
     if df.empty:
         st.error("No se encontraron datos para mostrar.")
         return
     
     # Pestañas de navegacion
-    tab1, tab2, tab3 = st.tabs(["Vision Global", "Analisis por Estudiante", "Gestion de Datos (Administrador)"])
+    nombres_tabs = ["Vision Global"]
+    if rol in {"admin", "director"}:
+        nombres_tabs.append("Analisis por Estudiante")
+    if rol == "admin":
+        nombres_tabs.append("Gestion de Datos (Administrador)")
+    tabs = st.tabs(nombres_tabs)
+    tab1 = tabs[0]
     
     with tab1:
         # Barra lateral con filtros globales
@@ -178,6 +209,18 @@ def main():
         # Filtrar por asignatura
         if asignatura_seleccionada != "Todas" and 'ASIGNATURA' in df_filtrado.columns:
             df_filtrado = df_filtrado[df_filtrado['ASIGNATURA'] == asignatura_seleccionada].copy()
+
+        # Conserva todo el historico para calcular correctamente el acumulado
+        # aunque el usuario visualice un rango que empiece despues.
+        df_tendencias = df.copy()
+        if programa_seleccionado != "Todos" and 'PROGRAMA' in df_tendencias.columns:
+            df_tendencias = df_tendencias[
+                df_tendencias['PROGRAMA'] == programa_seleccionado
+            ].copy()
+        if sede_seleccionada != "Todas" and 'SEDE' in df_tendencias.columns:
+            df_tendencias = df_tendencias[
+                df_tendencias['SEDE'] == sede_seleccionada
+            ].copy()
     
         st.sidebar.markdown("---")
         st.sidebar.info(f"Registros filtrados: {len(df_filtrado):,}")
@@ -242,7 +285,10 @@ def main():
 
         with st.container(border=True, width="stretch"):
             st.markdown("### Promedios por periodo")
-            figura_promedios = graficar_tendencia_promedios(df_filtrado)
+            figura_promedios = graficar_tendencia_promedios(
+                df_tendencias,
+                periodos_visibles=periodos_seleccionados,
+            )
             st.plotly_chart(
                 figura_promedios,
                 width="stretch",
@@ -251,7 +297,10 @@ def main():
 
         with st.container(border=True, width="stretch"):
             st.markdown("### Cantidad de aprobados y reprobados")
-            figura_cantidades = graficar_tendencia_cantidades(df_filtrado)
+            figura_cantidades = graficar_tendencia_cantidades(
+                df_filtrado,
+                periodos_visibles=periodos_seleccionados,
+            )
             st.plotly_chart(
                 figura_cantidades,
                 width="stretch",
@@ -352,13 +401,70 @@ def main():
                 else:
                     st.success("No se detectaron estudiantes en alerta temprana con los criterios actuales.")
 
-    with tab2:
-        mostrar_ficha_estudiante(df)
+    if rol in {"admin", "director"}:
+        with tabs[1]:
+            mostrar_ficha_estudiante(df)
     
-    with tab3:
-        st.subheader("Gestion de Datos - Administrador")
+    if rol == "admin":
+        with tabs[2]:
+            st.subheader("Gestion de Datos - Administrador")
         st.caption("Carga de archivos Excel semestrales para actualizar el historico")
-        
+
+        st.markdown("### Crear cuenta de profesor")
+        st.caption(
+            "La cuenta solo podra consultar estadisticas de las materias "
+            "asignadas al docente seleccionado."
+        )
+        docentes_disponibles = []
+        if "DOCENTE" in cargar_datos().columns:
+            docentes_disponibles = sorted(
+                nombre
+                for nombre in cargar_datos()["DOCENTE"].dropna().astype(str).str.strip().unique()
+                if nombre
+            )
+        with st.form("crear_cuenta_profesor"):
+            nuevo_usuario = st.text_input("Usuario del profesor")
+            nombre_profesor = st.text_input("Nombre visible")
+            docente_asociado = st.selectbox(
+                "Docente del archivo academico",
+                options=docentes_disponibles,
+            )
+            nueva_contrasena = st.text_input(
+                "Contrasena inicial",
+                type="password",
+            )
+            crear_cuenta = st.form_submit_button(
+                "Crear cuenta",
+                width="stretch",
+            )
+        if crear_cuenta:
+            try:
+                create_professor(
+                    nuevo_usuario,
+                    nombre_profesor,
+                    docente_asociado,
+                    nueva_contrasena,
+                )
+                st.success(
+                    f"Cuenta '{nuevo_usuario.strip().lower()}' creada correctamente."
+                )
+            except ValueError as error:
+                st.error(str(error))
+
+        st.markdown("### Cuentas registradas")
+        cuentas = pd.DataFrame(
+            [
+                {
+                    "Usuario": user.get("username", ""),
+                    "Nombre": user.get("display_name", ""),
+                    "Rol": user.get("role", ""),
+                    "Docente asociado": user.get("teacher_name", ""),
+                }
+                for user in load_users()
+            ]
+        )
+        st.dataframe(cuentas, width="stretch", hide_index=True)
+
         st.markdown("---")
         
         # File uploader

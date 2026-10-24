@@ -24,6 +24,8 @@ htmlcov/
 .env.*
 !.env.example
 .streamlit/secrets.toml
+auth_users.json
+auth_users.tmp
 *.pem
 *.key
 secrets/
