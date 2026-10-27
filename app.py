@@ -11,7 +11,9 @@ from src.services.metrics import (
 )
 from src.components.charts import (
     graficar_tendencia_promedios,
+    graficar_tendencia_promedio_materia,
     graficar_tendencia_cantidades,
+    graficar_mapa_reprobacion,
 )
 from src.components.student_profile import mostrar_ficha_estudiante
 from src.services.ai_copilot import generar_analisis_ia, explicar_grafico_ia
@@ -188,6 +190,54 @@ def main():
             options=asignaturas_disponibles,
             index=0
         )
+
+        semestres_curriculares_disponibles = ["Todos"]
+        if "SEMESTRE_ASIGNATURA" in df.columns:
+            semestres_curriculares = [
+                str(valor).strip()
+                for valor in df["SEMESTRE_ASIGNATURA"].dropna().unique()
+                if str(valor).strip()
+            ]
+            semestres_curriculares_disponibles.extend(
+                sorted(
+                    set(semestres_curriculares),
+                    key=lambda valor: (
+                        [
+                            "PRIMER",
+                            "SEGUNDO",
+                            "TERCER",
+                            "CUARTO",
+                            "QUINTO",
+                            "SEXTO",
+                            "SEPTIMO",
+                            "OCTAVO",
+                            "NOVENO",
+                            "DECIMO",
+                        ].index(str(valor).split()[0])
+                        if str(valor).split()[0] in {
+                            "PRIMER",
+                            "SEGUNDO",
+                            "TERCER",
+                            "CUARTO",
+                            "QUINTO",
+                            "SEXTO",
+                            "SEPTIMO",
+                            "OCTAVO",
+                            "NOVENO",
+                            "DECIMO",
+                        }
+                        else 999,
+                        valor,
+                    ),
+                )
+            )
+
+        semestre_curricular_seleccionado = st.sidebar.selectbox(
+            "Semestre curricular (mapa)",
+            options=semestres_curriculares_disponibles,
+            index=0,
+            help="Filtra el mapa de reprobacion usando SEMESTRE_ASIGNATURA.",
+        )
     
         # Aplicar filtros al DataFrame
         df_filtrado = df.copy()
@@ -284,7 +334,17 @@ def main():
         )
 
         with st.container(border=True, width="stretch"):
-            st.markdown("### Promedios por periodo")
+            if asignatura_seleccionada == "Todas":
+                st.markdown("### Promedio acumulado historico por periodo")
+                st.caption(
+                    "Promedio acumulado general de los estudiantes, separado "
+                    "por grupos acumulados."
+                )
+            else:
+                st.markdown(
+                    f"### Tendencia de {asignatura_seleccionada} por periodo"
+                )
+                st.caption("Promedio acumulado historico general.")
             figura_promedios = graficar_tendencia_promedios(
                 df_tendencias,
                 periodos_visibles=periodos_seleccionados,
@@ -305,6 +365,46 @@ def main():
                 figura_cantidades,
                 width="stretch",
                 key="tendencia_cantidades",
+            )
+
+        if asignatura_seleccionada != "Todas":
+            with st.container(border=True, width="stretch"):
+                st.markdown(
+                    f"### Promedio de {asignatura_seleccionada} por periodo"
+                )
+                st.caption(
+                    "Promedio general de la materia y promedios separados "
+                    "por aprobados y reprobados."
+                )
+                figura_materia = graficar_tendencia_promedio_materia(
+                    df_filtrado,
+                    asignatura_seleccionada,
+                    periodos_visibles=periodos_seleccionados,
+                )
+                st.plotly_chart(
+                    figura_materia,
+                    width="stretch",
+                    key="tendencia_promedio_materia",
+                )
+
+        with st.container(border=True, width="stretch"):
+            st.markdown("### Dificultad por materia y periodo")
+            st.caption(
+                "Cada celda muestra el porcentaje de estudiantes reprobados "
+                "en una materia y periodo."
+            )
+            df_mapa = df_filtrado
+            semestres_mapa = None
+            if semestre_curricular_seleccionado != "Todos":
+                semestres_mapa = [semestre_curricular_seleccionado]
+            figura_mapa = graficar_mapa_reprobacion(
+                df_mapa,
+                semestres_curriculares=semestres_mapa,
+            )
+            st.plotly_chart(
+                figura_mapa,
+                width="stretch",
+                key="mapa_reprobacion",
             )
 
             periodos_drilldown = (

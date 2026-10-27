@@ -10,6 +10,7 @@ Dashboard web para explorar el rendimiento académico del Instituto Tecnológico
   - Periodo académico.
   - Programa.
   - Sede.
+  - Semestre curricular de la asignatura (`SEMESTRE_ASIGNATURA`) para el mapa de reprobación.
   - Semestre de la asignatura.
   - Asignatura.
 - Indicadores globales:
@@ -18,16 +19,10 @@ Dashboard web para explorar el rendimiento académico del Instituto Tecnológico
   - Nota promedio global.
   - Tasas de aprobación y reprobación.
 - Visualizaciones interactivas con Plotly:
-  - Evolución histórica de aprobación, reprobación, promedio y mediana.
-  - Ranking de causas de reprobación.
-  - Mapa de calor curricular.
-  - Distribución de notas por grupo o docente.
-  - Curva de progreso por cortes.
-  - Matriz de riesgo contra volumen.
-  - Radar de alertas del periodo en curso.
-  - Tendencia histórica del promedio.
-  - Trayectoria individual, disponible como componente reutilizable.
-  - Top de mortalidad académica, disponible como componente reutilizable.
+  - Tendencia del promedio acumulado histórico por periodo.
+  - Tendencia de cantidades aprobadas y reprobadas por periodo.
+  - Mapa de reprobación por asignatura y periodo.
+  - Promedio e historial de intentos por materia en la ficha individual.
 - Ficha académica individual con búsqueda por documento o nombre.
 - Detección de estudiantes en riesgo durante el periodo en curso.
 - Análisis ejecutivo integral con Google Gemini.
