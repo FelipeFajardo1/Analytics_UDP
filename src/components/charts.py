@@ -359,6 +359,82 @@ def graficar_tendencia_promedio_materia(df, asignatura, periodos_visibles=None):
     return fig
 
 
+def graficar_reprobados_por_corte(df, asignatura, periodos_seleccionados):
+    """Compara reprobados y su nota media en cada corte por periodo."""
+    trabajo = _preparar_tendencias(df)
+    fig = go.Figure()
+    cortes = [
+        ("Primer corte", "PRIMER_PARCIAL"),
+        ("Segundo corte", "SEGUNDO_PARCIAL"),
+        ("Examen final", "EXAMEN_FINAL"),
+    ]
+    requeridas = {"ASIGNATURA", "ID_ESTUDIANTE"}
+    if trabajo.empty or not requeridas.issubset(trabajo.columns):
+        fig.update_layout(title="Reprobacion por corte - Sin datos disponibles")
+        return fig
+
+    trabajo = trabajo[
+        trabajo["ASIGNATURA"].astype(str).str.strip() == str(asignatura).strip()
+    ].copy()
+    periodos = [
+        periodo for periodo in _ordenar_periodos(periodos_seleccionados or [])
+        if periodo in set(trabajo["PERIODO"])
+    ]
+    if trabajo.empty or not periodos:
+        fig.update_layout(
+            title=f"Reprobacion por corte de {asignatura} - Sin datos disponibles"
+        )
+        return fig
+
+    colores = ["#2563eb", "#dc2626", "#16a34a", "#7c3aed", "#0891b2"]
+    for indice, periodo in enumerate(periodos):
+        periodo_df = trabajo[trabajo["PERIODO"] == periodo]
+        valores = []
+        promedios = []
+        for _, columna in cortes:
+            notas = periodo_df[["ID_ESTUDIANTE", columna]].copy()
+            notas[columna] = pd.to_numeric(notas[columna], errors="coerce")
+            notas = notas.dropna(subset=[columna])
+            notas = notas.groupby("ID_ESTUDIANTE", as_index=False)[columna].mean()
+            reprobados = notas[notas[columna] < 3.0]
+            valores.append(len(reprobados))
+            promedios.append(
+                reprobados[columna].mean() if not reprobados.empty else None
+            )
+        fig.add_trace(
+            go.Scatter(
+                name=str(periodo),
+                x=[nombre for nombre, _ in cortes],
+                y=valores,
+                mode="lines+markers+text",
+                text=[str(valor) for valor in valores],
+                textposition="top center",
+                customdata=[
+                    [promedio if promedio is not None else float("nan")]
+                    for promedio in promedios
+                ],
+                line=dict(color=colores[indice % len(colores)], width=3),
+                marker=dict(size=9),
+                hovertemplate=(
+                    "<b>%{x}</b><br>"
+                    f"Periodo: {periodo}<br>"
+                    "Estudiantes reprobados: %{y}<br>"
+                    "Promedio de sus notas: %{customdata[0]:.2f}"
+                    "<extra></extra>"
+                ),
+            )
+        )
+    fig.update_layout(
+        title=f"Reprobados por corte - {asignatura}",
+        xaxis=dict(type="category", title="Corte academico"),
+        yaxis=dict(title="Cantidad de estudiantes reprobados", rangemode="tozero"),
+        hovermode="x unified",
+        height=650,
+        legend=dict(title="Periodo academico"),
+    )
+    return fig
+
+
 def graficar_tendencia_cantidades(df, periodos_visibles=None):
     """Muestra aprobados y reprobados por materia y periodo."""
     trabajo = _preparar_tendencias(df)

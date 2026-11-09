@@ -12,6 +12,7 @@ from src.services.metrics import (
 from src.components.charts import (
     graficar_tendencia_promedios,
     graficar_tendencia_promedio_materia,
+    graficar_reprobados_por_corte,
     graficar_tendencia_cantidades,
     graficar_mapa_reprobacion,
 )
@@ -21,7 +22,7 @@ from src.services.auth import authenticate, create_professor, load_users
 
 
 st.set_page_config(
-    page_title="Analitica Academica ITP",
+    page_title="Analitica Academica UDP",
     page_icon="YS",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -51,7 +52,7 @@ def main():
         st.session_state.autenticado = False
     
     if not st.session_state.autenticado:
-        st.title("Acceso Restringido - Analitica Academica ITP")
+        st.title("Acceso Restringido - Analitica Academica UDP")
         st.markdown("**Informacion estrictamente confidencial - Solo personal autorizado**")
         
         col_login1, col_login2, col_login3 = st.columns([1, 2, 1])
@@ -74,7 +75,7 @@ def main():
             st.markdown("---")
         return
     
-    st.title("Analitica Academica ITP")
+    st.title("Analitica Academica UDP")
     st.markdown("Sistema de analisis del rendimiento academico para la toma de decisiones")
     usuario = st.session_state.get("usuario", {})
     rol = usuario.get("role", "")
@@ -107,7 +108,7 @@ def main():
         return
     
     # Pestañas de navegacion
-    nombres_tabs = ["Vision Global"]
+    nombres_tabs = ["Vision Global", "Analisis Detallado"]
     if rol in {"admin", "director"}:
         nombres_tabs.append("Analisis por Estudiante")
     if rol == "admin":
@@ -189,6 +190,37 @@ def main():
             "Asignatura",
             options=asignaturas_disponibles,
             index=0
+        )
+
+        periodos_cortes_disponibles = []
+        if asignatura_seleccionada != "Todas" and "ASIGNATURA" in df.columns:
+            datos_materia = df[
+                df["ASIGNATURA"].astype(str).str.strip()
+                == asignatura_seleccionada
+            ].copy()
+            if "TIPO_REGISTRO" in datos_materia.columns:
+                datos_materia = datos_materia[
+                    datos_materia["TIPO_REGISTRO"] == "CON_BOLETIN"
+                ]
+            if "CALIDAD_CIERRE" in datos_materia.columns:
+                datos_materia = datos_materia[
+                    ~datos_materia["CALIDAD_CIERRE"].astype(str).str.upper().str.contains(
+                        "PERIODO_EN_CURSO_NO_FINAL", na=False
+                    )
+                ]
+            periodos_cortes_disponibles = sorted(
+                datos_materia["PERIODO"].dropna().astype(str).str.strip().unique(),
+                key=lambda valor: (
+                    int(valor.split("-")[0]),
+                    int(valor.split("-")[1]),
+                ),
+            )
+        periodos_cortes_seleccionados = st.sidebar.multiselect(
+            "Periodos para grafica de cortes",
+            options=periodos_cortes_disponibles,
+            default=periodos_cortes_disponibles[-3:],
+            disabled=asignatura_seleccionada == "Todas",
+            help="Solo aparecen periodos en los que se curso la materia seleccionada.",
         )
 
         semestres_curriculares_disponibles = ["Todos"]
@@ -334,17 +366,11 @@ def main():
         )
 
         with st.container(border=True, width="stretch"):
-            if asignatura_seleccionada == "Todas":
-                st.markdown("### Promedio acumulado historico por periodo")
-                st.caption(
-                    "Promedio acumulado general de los estudiantes, separado "
-                    "por grupos acumulados."
-                )
-            else:
-                st.markdown(
-                    f"### Tendencia de {asignatura_seleccionada} por periodo"
-                )
-                st.caption("Promedio acumulado historico general.")
+            st.markdown("### Promedio acumulado historico por periodo")
+            st.caption(
+                "Promedio acumulado general de los estudiantes, separado "
+                "por grupos acumulados."
+            )
             figura_promedios = graficar_tendencia_promedios(
                 df_tendencias,
                 periodos_visibles=periodos_seleccionados,
@@ -367,32 +393,22 @@ def main():
                 key="tendencia_cantidades",
             )
 
-        if asignatura_seleccionada != "Todas":
-            with st.container(border=True, width="stretch"):
-                st.markdown(
-                    f"### Promedio de {asignatura_seleccionada} por periodo"
-                )
-                st.caption(
-                    "Promedio general de la materia y promedios separados "
-                    "por aprobados y reprobados."
-                )
-                figura_materia = graficar_tendencia_promedio_materia(
-                    df_filtrado,
-                    asignatura_seleccionada,
-                    periodos_visibles=periodos_seleccionados,
-                )
-                st.plotly_chart(
-                    figura_materia,
-                    width="stretch",
-                    key="tendencia_promedio_materia",
-                )
-
         with st.container(border=True, width="stretch"):
             st.markdown("### Dificultad por materia y periodo")
             st.caption(
                 "Cada celda muestra el porcentaje de estudiantes reprobados "
                 "en una materia y periodo."
             )
+            if semestre_curricular_seleccionado == "Todos":
+                st.markdown(
+                    "## :orange[Selecciona un semestre curricular en los filtros "
+                    "para consultar esta grafica]"
+                )
+            else:
+                st.caption(
+                    f"Semestre curricular seleccionado: "
+                    f"{semestre_curricular_seleccionado}"
+                )
             df_mapa = df_filtrado
             semestres_mapa = None
             if semestre_curricular_seleccionado != "Todos":
@@ -501,130 +517,169 @@ def main():
                 else:
                     st.success("No se detectaron estudiantes en alerta temprana con los criterios actuales.")
 
+    with tabs[1]:
+        st.subheader("Analisis detallado por materia")
+        st.caption(
+            "Estas visualizaciones aparecen de acuerdo con la asignatura "
+            "seleccionada en los filtros globales."
+        )
+        if asignatura_seleccionada == "Todas":
+            st.info(
+                "Selecciona una asignatura en los filtros globales para "
+                "consultar sus graficas detalladas."
+            )
+        else:
+            with st.container(border=True, width="stretch"):
+                st.markdown(
+                    f"### Promedio de {asignatura_seleccionada} por periodo"
+                )
+                st.caption(
+                    "Promedio general de la materia y promedios separados "
+                    "por aprobados y reprobados."
+                )
+                figura_materia = graficar_tendencia_promedio_materia(
+                    df_filtrado,
+                    asignatura_seleccionada,
+                    periodos_visibles=periodos_seleccionados,
+                )
+                st.plotly_chart(
+                    figura_materia,
+                    width="stretch",
+                    key="tendencia_promedio_materia",
+                )
+
+            with st.container(border=True, width="stretch"):
+                st.markdown("### Reprobados por corte y periodo")
+                st.caption(
+                    "Compara cuantos estudiantes reprobaron en cada corte y "
+                    "muestra el promedio de sus notas al pasar el mouse."
+                )
+                figura_cortes = graficar_reprobados_por_corte(
+                    df,
+                    asignatura_seleccionada,
+                    periodos_cortes_seleccionados,
+                )
+                st.plotly_chart(
+                    figura_cortes,
+                    width="stretch",
+                    key="reprobados_por_corte",
+                )
+
+    indice_estudiante = 2
     if rol in {"admin", "director"}:
-        with tabs[1]:
+        with tabs[indice_estudiante]:
             mostrar_ficha_estudiante(df)
+        indice_estudiante += 1
     
     if rol == "admin":
-        with tabs[2]:
+        with tabs[indice_estudiante]:
             st.subheader("Gestion de Datos - Administrador")
-        st.caption("Carga de archivos Excel semestrales para actualizar el historico")
+            st.caption("Carga de archivos Excel y administracion de cuentas.")
 
-        st.markdown("### Crear cuenta de profesor")
-        st.caption(
-            "La cuenta solo podra consultar estadisticas de las materias "
-            "asignadas al docente seleccionado."
-        )
-        docentes_disponibles = []
-        if "DOCENTE" in cargar_datos().columns:
-            docentes_disponibles = sorted(
-                nombre
-                for nombre in cargar_datos()["DOCENTE"].dropna().astype(str).str.strip().unique()
-                if nombre
+            st.markdown("### Crear cuenta de profesor")
+            st.caption(
+                "La cuenta solo podra consultar estadisticas de las materias "
+                "asignadas al docente seleccionado."
             )
-        with st.form("crear_cuenta_profesor"):
-            nuevo_usuario = st.text_input("Usuario del profesor")
-            nombre_profesor = st.text_input("Nombre visible")
-            docente_asociado = st.selectbox(
-                "Docente del archivo academico",
-                options=docentes_disponibles,
-            )
-            nueva_contrasena = st.text_input(
-                "Contrasena inicial",
-                type="password",
-            )
-            crear_cuenta = st.form_submit_button(
-                "Crear cuenta",
-                width="stretch",
-            )
-        if crear_cuenta:
-            try:
-                create_professor(
-                    nuevo_usuario,
-                    nombre_profesor,
-                    docente_asociado,
-                    nueva_contrasena,
+            docentes_disponibles = []
+            if "DOCENTE" in cargar_datos().columns:
+                docentes_disponibles = sorted(
+                    nombre
+                    for nombre in cargar_datos()["DOCENTE"].dropna().astype(str).str.strip().unique()
+                    if nombre
                 )
-                st.success(
-                    f"Cuenta '{nuevo_usuario.strip().lower()}' creada correctamente."
+            with st.form("crear_cuenta_profesor"):
+                nuevo_usuario = st.text_input("Usuario del profesor")
+                nombre_profesor = st.text_input("Nombre visible")
+                docente_asociado = st.selectbox(
+                    "Docente del archivo academico",
+                    options=docentes_disponibles,
                 )
-            except ValueError as error:
-                st.error(str(error))
+                nueva_contrasena = st.text_input(
+                    "Contrasena inicial",
+                    type="password",
+                )
+                crear_cuenta = st.form_submit_button(
+                    "Crear cuenta",
+                    width="stretch",
+                )
+            if crear_cuenta:
+                try:
+                    create_professor(
+                        nuevo_usuario,
+                        nombre_profesor,
+                        docente_asociado,
+                        nueva_contrasena,
+                    )
+                    st.success(
+                        f"Cuenta '{nuevo_usuario.strip().lower()}' creada correctamente."
+                    )
+                except ValueError as error:
+                    st.error(str(error))
 
-        st.markdown("### Cuentas registradas")
-        cuentas = pd.DataFrame(
-            [
-                {
-                    "Usuario": user.get("username", ""),
-                    "Nombre": user.get("display_name", ""),
-                    "Rol": user.get("role", ""),
-                    "Docente asociado": user.get("teacher_name", ""),
-                }
-                for user in load_users()
-            ]
-        )
-        st.dataframe(cuentas, width="stretch", hide_index=True)
+            st.markdown("### Cuentas registradas")
+            cuentas = pd.DataFrame(
+                [
+                    {
+                        "Usuario": user.get("username", ""),
+                        "Nombre": user.get("display_name", ""),
+                        "Rol": user.get("role", ""),
+                        "Docente asociado": user.get("teacher_name", ""),
+                    }
+                    for user in load_users()
+                ]
+            )
+            st.dataframe(cuentas, width="stretch", hide_index=True)
 
-        st.markdown("---")
-        
-        # File uploader
-        uploaded_file = st.file_uploader(
-            "Seleccionar archivo Excel (.xlsx)",
-            type=['xlsx'],
-            help="Suba el archivo consolidado con las hojas de registros acadAmicos"
-        )
-        
-        if uploaded_file is not None:
-            st.success(f"Archivo cargado: {uploaded_file.name}")
-            
-            # Guardar archivo temporal
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
-                tmp_file.write(uploaded_file.getvalue())
-                tmp_path = tmp_file.name
-            
-            try:
-                with st.spinner("Procesando y validando datos..."):
-                    # Ejecutar cargar_datos_limpios sobre archivo temporal
-                    df_nuevo = cargar_datos_limpios(ruta_excel=tmp_path)
-                
-                st.markdown("### Resumen del Archivo Cargado")
-                
-                col_r1, col_r2, col_r3 = st.columns(3)
-                
-                with col_r1:
-                    st.metric("Total de Filas Nuevas", f"{len(df_nuevo):,}")
-                
-                with col_r2:
-                    if 'PERIODO' in df_nuevo.columns:
-                        periodos_detectados = df_nuevo['PERIODO'].dropna().unique()
-                        st.metric("Periodos Detectados", f"{len(periodos_detectados)}")
-                        st.caption(", ".join(sorted([str(p) for p in periodos_detectados])))
-                    else:
-                        st.metric("Periodos Detectados", "N/A")
-                
-                with col_r3:
-                    if 'ID_ESTUDIANTE' in df_nuevo.columns:
-                        num_estudiantes = df_nuevo['ID_ESTUDIANTE'].nunique()
-                        st.metric("Cantidad de Estudiantes", f"{num_estudiantes:,}")
-                    else:
-                        st.metric("Cantidad de Estudiantes", "N/A")
-                
-                st.markdown("---")
-                
-                # Boton para guardar y consolidar
-                if st.button("Guardar y Consolidar", width="stretch", type="primary", key="guardar_consolidar"):
-                    try:
+            st.markdown("---")
+            uploaded_file = st.file_uploader(
+                "Seleccionar archivo Excel (.xlsx)",
+                type=["xlsx"],
+                help="Suba el archivo consolidado con las hojas de registros academicos",
+            )
+
+            if uploaded_file is not None:
+                st.success(f"Archivo cargado: {uploaded_file.name}")
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp_file:
+                    tmp_file.write(uploaded_file.getvalue())
+                    tmp_path = tmp_file.name
+                try:
+                    with st.spinner("Procesando y validando datos..."):
+                        df_nuevo = cargar_datos_limpios(ruta_excel=tmp_path)
+                    st.markdown("### Resumen del archivo cargado")
+                    col_r1, col_r2, col_r3 = st.columns(3)
+                    with col_r1:
+                        st.metric("Total de filas nuevas", f"{len(df_nuevo):,}")
+                    with col_r2:
+                        if "PERIODO" in df_nuevo.columns:
+                            periodos_detectados = df_nuevo["PERIODO"].dropna().unique()
+                            st.metric("Periodos detectados", f"{len(periodos_detectados)}")
+                            st.caption(", ".join(sorted(str(p) for p in periodos_detectados)))
+                        else:
+                            st.metric("Periodos detectados", "N/A")
+                    with col_r3:
+                        if "ID_ESTUDIANTE" in df_nuevo.columns:
+                            st.metric(
+                                "Cantidad de estudiantes",
+                                f"{df_nuevo['ID_ESTUDIANTE'].nunique():,}",
+                            )
+                        else:
+                            st.metric("Cantidad de estudiantes", "N/A")
+
+                    if st.button(
+                        "Guardar y consolidar",
+                        width="stretch",
+                        type="primary",
+                        key="guardar_consolidar",
+                    ):
                         carpeta_data = "data"
                         os.makedirs(carpeta_data, exist_ok=True)
-
                         nombre_seguro = os.path.basename(uploaded_file.name)
                         if not nombre_seguro:
-                            raise ValueError("El archivo cargado no tiene un nombre vAlido.")
-
+                            raise ValueError("El archivo cargado no tiene un nombre valido.")
                         ruta_destino = os.path.join(carpeta_data, nombre_seguro)
                         ruta_temporal_data = f"{ruta_destino}.uploading"
                         shutil.copy2(tmp_path, ruta_temporal_data)
-
                         for nombre_archivo in os.listdir(carpeta_data):
                             ruta_archivo = os.path.join(carpeta_data, nombre_archivo)
                             if (
@@ -633,33 +688,22 @@ def main():
                                 in {".xlsx", ".xls", ".xlsm"}
                             ):
                                 os.remove(ruta_archivo)
-
                         os.replace(ruta_temporal_data, ruta_destino)
-                        
-                        # Limpiar cache
                         st.cache_data.clear()
-                        
                         st.success(
                             f"Archivo guardado exitosamente como '{nombre_seguro}'. "
                             "El archivo Excel anterior fue reemplazado."
                         )
                         st.info("Recarga la pagina para ver los datos actualizados.")
-                        
-                    except Exception as e:
-                        st.error(f"Error al guardar el archivo: {e}")
-                
-            except Exception as e:
-                st.error(f"Error al procesar el archivo: {e}")
-                st.caption("Verifique que el archivo tenga el formato correcto con las hojas de registros acadAmicos.")
-            
-            finally:
-                # Limpiar archivo temporal
-                try:
-                    os.unlink(tmp_path)
-                except:
-                    pass
-        else:
-            st.info("Seleccione un archivo .xlsx para comenzar la carga")
+                except (OSError, ValueError) as error:
+                    st.error(f"Error al procesar o guardar el archivo: {error}")
+                finally:
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
+            else:
+                st.info("Seleccione un archivo .xlsx para comenzar la carga")
 
 
 if __name__ == "__main__":

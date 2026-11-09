@@ -4,6 +4,73 @@ import numpy as np
 import plotly.express as px
 
 
+def _valor_habilitacion(valor):
+    if pd.isna(valor):
+        return False
+    if isinstance(valor, (int, float, np.number)):
+        return float(valor) > 0
+    texto = str(valor).strip().upper()
+    return texto not in {"", "0", "0.0", "NO", "N", "NAN", "NONE"}
+
+
+def _resumen_promedios_historicos(df):
+    """Resume promedio por periodo y detalle de materias/habilitaciones."""
+    if df is None or df.empty:
+        return pd.DataFrame()
+    requerido = {"PERIODO", "ASIGNATURA", "DEFINITIVA_ALMACENADA"}
+    if not requerido.issubset(df.columns):
+        return pd.DataFrame()
+
+    trabajo = df.copy()
+    trabajo["DEFINITIVA_ALMACENADA"] = pd.to_numeric(
+        trabajo["DEFINITIVA_ALMACENADA"],
+        errors="coerce",
+    )
+    trabajo = trabajo.dropna(
+        subset=["PERIODO", "ASIGNATURA", "DEFINITIVA_ALMACENADA"]
+    ).copy()
+    trabajo["PERIODO"] = trabajo["PERIODO"].astype(str).str.strip()
+    trabajo["ASIGNATURA"] = trabajo["ASIGNATURA"].astype(str).str.strip()
+    trabajo = trabajo[
+        ~trabajo["PERIODO"].isin(["", "nan"])
+        & ~trabajo["ASIGNATURA"].isin(["", "nan"])
+    ].copy()
+    if trabajo.empty:
+        return pd.DataFrame()
+
+    if "HABILITACION" in trabajo.columns:
+        trabajo["_habilito"] = trabajo["HABILITACION"].map(_valor_habilitacion)
+    else:
+        trabajo["_habilito"] = False
+
+    materias = (
+        trabajo.groupby(["PERIODO", "ASIGNATURA"], as_index=False)
+        .agg(
+            promedio_materia=("DEFINITIVA_ALMACENADA", "mean"),
+            habilito=("_habilito", "any"),
+        )
+    )
+    detalles = (
+        materias.sort_values(["PERIODO", "ASIGNATURA"])
+        .groupby("PERIODO")
+        .apply(
+            lambda grupo: "<br>".join(
+                f"{fila.ASIGNATURA}: {fila.promedio_materia:.2f} "
+                f"(Habilito: {'Si' if fila.habilito else 'No'})"
+                for fila in grupo.itertuples()
+            ),
+            include_groups=False,
+        )
+        .rename("detalle_materias")
+    )
+    resumen = (
+        trabajo.groupby("PERIODO", as_index=False)
+        .agg(Promedio=("DEFINITIVA_ALMACENADA", "mean"))
+        .merge(detalles, left_on="PERIODO", right_index=True)
+    )
+    return resumen
+
+
 def mostrar_ficha_estudiante(df):
     """
     Muestra la ficha individual del estudiante con buscador por documento o nombre.
@@ -211,6 +278,44 @@ def mostrar_ficha_estudiante(df):
             if df_graficas.empty:
                 st.info("No hay datos para los filtros seleccionados.")
             else:
+                resumen_historico = _resumen_promedios_historicos(df_graficas)
+                if not resumen_historico.empty:
+                    figura_historico = px.line(
+                        resumen_historico,
+                        x="PERIODO",
+                        y="Promedio",
+                        markers=True,
+                        title="Promedio historico por periodo",
+                        labels={
+                            "PERIODO": "Periodo academico",
+                            "Promedio": "Promedio de nota",
+                        },
+                    )
+                    figura_historico.update_traces(
+                        customdata=resumen_historico[["detalle_materias"]],
+                        hovertemplate=(
+                            "<b>%{x}</b><br>"
+                            "Promedio historico: %{y:.2f}<br><br>"
+                            "<b>Materias cursadas</b><br>"
+                            "%{customdata[0]}<extra></extra>"
+                        ),
+                    )
+                    figura_historico.update_layout(
+                        yaxis=dict(range=[0, 5], title="Promedio de nota"),
+                        xaxis=dict(
+                            type="category",
+                            categoryorder="array",
+                            categoryarray=periodos_seleccionados,
+                            title="Periodo academico",
+                        ),
+                        height=620,
+                    )
+                    st.plotly_chart(
+                        figura_historico,
+                        width="stretch",
+                        key="perfil_promedio_historico",
+                    )
+
                 promedios_materia = (
                     df_graficas.groupby('ASIGNATURA', as_index=False)
                     .agg(
