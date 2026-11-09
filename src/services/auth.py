@@ -3,6 +3,7 @@ import json
 import os
 import secrets
 from pathlib import Path
+from src.services.audit import registrar_evento
 
 
 USERS_PATH = Path(__file__).resolve().parents[2] / "auth_users.json"
@@ -90,7 +91,9 @@ def authenticate(username, password):
             password,
             user.get("password_hash", ""),
         ):
+            registrar_evento("login_exitoso", username)
             return user
+    registrar_evento("login_fallido", username)
     return None
 
 
@@ -100,6 +103,8 @@ def create_professor(username, display_name, teacher_name, password):
     teacher_name = teacher_name.strip()
     if not username or not display_name or not teacher_name or not password:
         raise ValueError("Todos los campos de la cuenta son obligatorios.")
+    if len(password) < 8:
+        raise ValueError("La contraseña debe tener al menos 8 caracteres.")
     users = load_users()
     if any(user.get("username", "").lower() == username for user in users):
         raise ValueError("Ese nombre de usuario ya existe.")
@@ -113,3 +118,26 @@ def create_professor(username, display_name, teacher_name, password):
         }
     )
     _write_users(users)
+    registrar_evento("profesor_creado", username, {"teacher_name": teacher_name})
+
+
+def change_password(username, current_password, new_password):
+    """Cambia la contraseña tras verificar la contraseña actual."""
+    if not new_password or len(new_password) < 8:
+        raise ValueError("La nueva contraseña debe tener al menos 8 caracteres.")
+    users = load_users()
+    usuario = next(
+        (
+            user for user in users
+            if user.get("username", "").lower() == username.strip().lower()
+        ),
+        None,
+    )
+    if usuario is None or not verify_password(
+        current_password,
+        usuario.get("password_hash", ""),
+    ):
+        raise ValueError("La contraseña actual no es correcta.")
+    usuario["password_hash"] = _password_hash(new_password)
+    _write_users(users)
+    registrar_evento("contrasena_cambiada", username.strip().lower())

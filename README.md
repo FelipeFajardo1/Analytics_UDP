@@ -46,19 +46,26 @@ Dashboard web para explorar el rendimiento académico de la Universidad del Putu
     │   ├── metrics.py             # KPIs, rendimiento, riesgo y alertas
     │   ├── filters.py             # Filtros de periodo, materia y docente
     │   ├── periods.py             # Ordenamiento y deteccion de periodos
+    │   ├── access.py              # Restriccion de datos por rol
+    │   ├── audit.py               # Auditoria local de eventos
+    │   ├── data_management.py     # Reemplazo seguro y respaldos
     │   └── ai_copilot.py          # Análisis integral y explicación de gráficos
     ├── components/
     │   ├── charts.py              # Gráficas interactivas Plotly
     │   ├── kpi_cards.py           # Componente reservado para tarjetas KPI
     │   ├── tables.py              # Estilos y tablas reutilizables
     │   └── student_profile.py     # Ficha académica individual
-    └── database/
-        └── models.py              # Punto de extensión para modelos de datos
+    └── ui/
+        ├── admin.py               # Vista de gestión del administrador
+        ├── global_view.py         # Filtros, KPIs y visualizaciones globales
+        ├── risk.py                # Riesgo académico del periodo vigente
+        ├── security.py            # Cambio de contraseña en la sesión
+        └── subject_analysis.py    # Visualizaciones detalladas por materia
 ```
 
 ## Flujo de datos
 
-1. `app.py` llama a `cargar_datos_limpios()`.
+1. `app.py` autentica al usuario, carga los datos y compone las vistas.
 2. `src/etl/cleaner.py` lee todas las hojas cuyo nombre comienza por un año de cuatro dígitos. Las hojas auxiliares, como `Sheet1`, se ignoran.
 3. El ETL:
    - Limpia nombres y valores de texto.
@@ -68,8 +75,9 @@ Dashboard web para explorar el rendimiento académico de la Universidad del Putu
    - Une todas las hojas en un único `DataFrame`.
 4. Los filtros seleccionados se aplican al `DataFrame` mediante helpers compartidos.
 5. `metrics.py` calcula los indicadores y tablas.
-6. `charts.py` construye la visualización seleccionada.
-7. `ai_copilot.py` genera análisis únicamente a partir de resúmenes agregados.
+6. Las vistas de `src/ui/` renderizan globales, riesgo y análisis detallado.
+7. `charts.py` construye la visualización seleccionada.
+8. `ai_copilot.py` genera análisis únicamente a partir de resúmenes agregados.
 
 Los datos se cargan con `st.cache_data` para evitar leer y limpiar el Excel en cada interacción.
 
@@ -171,11 +179,27 @@ Esta sección permite cargar un `.xlsx`, revisar filas, periodos y estudiantes d
 
 ## Integración con Google Gemini
 
-La aplicación usa el paquete `google-genai` y el modelo configurado en `src/services/ai_copilot.py`:
+La aplicación usa el paquete `google-genai` y el modelo configurado en `src/services/ai_copilot.py`. La clave puede configurarse de forma segura en `.streamlit/secrets.toml`:
 
 ```python
 MODELO_GEMINI = "gemini-3.8-flash"
 ```
+
+```toml
+GOOGLE_API_KEY = "su-clave-local"
+```
+
+No se debe publicar ese archivo ni incluir la clave en el codigo. Si no existe el
+secreto, la interfaz permite introducir una clave temporal para la sesion.
+
+## Seguridad operativa
+
+- La gestión administrativa solo se renderiza para el rol `admin`.
+- Los profesores reciben únicamente registros asociados a su docente.
+- Las contraseñas usan PBKDF2 y pueden cambiarse desde la barra lateral.
+- Los inicios de sesión, cambios de contraseña, creación de profesores y cargas de datos se registran en `audit.log`.
+- Antes de reemplazar el Excel activo se crea un respaldo fechado en `data/backups/`.
+- `auth_users.json`, `audit.log`, backups y archivos académicos están excluidos de Git.
 
 La API key se introduce en la barra lateral durante la sesión. No la escribas en el código, en `requirements.txt`, en el README ni en un archivo que vaya a Git. En un despliegue productivo, utiliza `st.secrets` o las variables de entorno del proveedor.
 

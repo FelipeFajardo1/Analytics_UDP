@@ -5,6 +5,16 @@ import pandas as pd
 MODELO_GEMINI = "gemini-3.8-flash"
 
 
+def obtener_api_key_configurada():
+    """Obtiene la clave desde Streamlit secrets sin exponerla en el codigo."""
+    try:
+        import streamlit as st
+
+        return str(st.secrets.get("GOOGLE_API_KEY", "")).strip()
+    except (AttributeError, FileNotFoundError, KeyError, RuntimeError):
+        return ""
+
+
 def _resumen_anonimo(df):
     """Construye un resumen agregado sin nombres ni identificadores personales."""
     trabajo = df.copy()
