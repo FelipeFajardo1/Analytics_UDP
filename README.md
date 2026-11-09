@@ -1,6 +1,6 @@
-# Analítica Académica ITP
+# Analítica Académica UDP
 
-Dashboard web para explorar el rendimiento académico del Instituto Tecnológico del Putumayo (ITP). La aplicación consolida registros históricos y del periodo en curso desde un archivo Excel, calcula indicadores académicos, permite analizar asignaturas y estudiantes, identifica alertas tempranas y ofrece explicaciones generadas con Google Gemini.
+Dashboard web para explorar el rendimiento académico de la Universidad del Putumayo (UDP). La aplicación consolida registros históricos y del periodo en curso desde un archivo Excel, calcula indicadores académicos, permite analizar asignaturas y estudiantes, identifica alertas tempranas y ofrece explicaciones generadas con Google Gemini.
 
 ## Características
 
@@ -41,12 +41,16 @@ Dashboard web para explorar el rendimiento académico del Instituto Tecnológico
     ├── etl/
     │   ├── cleaner.py             # Lectura, limpieza y consolidación del Excel
     │   └── validator.py           # Punto de extensión para validaciones
+    ├── constants.py               # Umbrales, pesos y semestres curriculares
     ├── services/
-    │   ├── metrics.py             # KPIs, rendimiento por asignatura y alertas
+    │   ├── metrics.py             # KPIs, rendimiento, riesgo y alertas
+    │   ├── filters.py             # Filtros de periodo, materia y docente
+    │   ├── periods.py             # Ordenamiento y deteccion de periodos
     │   └── ai_copilot.py          # Análisis integral y explicación de gráficos
     ├── components/
     │   ├── charts.py              # Gráficas interactivas Plotly
     │   ├── kpi_cards.py           # Componente reservado para tarjetas KPI
+    │   ├── tables.py              # Estilos y tablas reutilizables
     │   └── student_profile.py     # Ficha académica individual
     └── database/
         └── models.py              # Punto de extensión para modelos de datos
@@ -55,18 +59,14 @@ Dashboard web para explorar el rendimiento académico del Instituto Tecnológico
 ## Flujo de datos
 
 1. `app.py` llama a `cargar_datos_limpios()`.
-2. `src/etl/cleaner.py` lee cuatro hojas del Excel:
-   - `2023 registros  académicos`
-   - `2024 registros  académicos`
-   - `2025 registros  académicos`
-   - `2026 registros  académicos`
+2. `src/etl/cleaner.py` lee todas las hojas cuyo nombre comienza por un año de cuatro dígitos. Las hojas auxiliares, como `Sheet1`, se ignoran.
 3. El ETL:
    - Limpia nombres y valores de texto.
    - Convierte comas decimales a números.
    - Convierte las columnas de calificaciones a `float`.
    - Crea `TIPO_REGISTRO` a partir de `ESTADO_BOLETIN`.
    - Une todas las hojas en un único `DataFrame`.
-4. Los filtros seleccionados se aplican al `DataFrame`.
+4. Los filtros seleccionados se aplican al `DataFrame` mediante helpers compartidos.
 5. `metrics.py` calcula los indicadores y tablas.
 6. `charts.py` construye la visualización seleccionada.
 7. `ai_copilot.py` genera análisis únicamente a partir de resúmenes agregados.
@@ -82,12 +82,17 @@ Estas reglas deben conservarse al modificar el ETL o los cálculos:
 - **Nota histórica:** el cálculo académico utiliza `DEFINITIVA_ALMACENADA`. No se debe sustituir automáticamente por `NOTA_FINAL_ALMACENADA`.
 - **Datos incompletos:** los valores nulos o sin estado deben excluirse del denominador cuando el cálculo requiere un estado válido y deben tener un tratamiento alternativo por nota cuando el código lo contempla.
 - **Abandono o ceros:** `TODOS_EN_CERO_VERIFICAR` debe interpretarse de acuerdo con la lógica de calidad de datos y no como una aprobación automática.
+- **Aprobación:** la nota mínima es `3.0`.
+- **Nota necesaria:** el primer y segundo corte pesan `30%` cada uno y el examen final pesa `40%`.
+- **Riesgo:** se muestran materias cuya nota necesaria es al menos `2.90`. Se distinguen peligro medio (`2.90` a `3.99`), peligro alto (`4.00` a `5.00`) y materias que ya no pueden aprobarse cuando se necesita más de `5.00`.
+- **Identidad académica:** cuando existen las columnas correspondientes, los cálculos de riesgo separan una materia por estudiante, docente y grupo para no mezclar cursos diferentes.
+- **Tasas:** aprobación y reprobación usan únicamente estados `APROBO` y `PERDIO`; los estados desconocidos no se incluyen en el denominador.
 
 ## Requisitos
 
 - Python 3.10 o superior.
 - pip.
-- Un archivo Excel consolidado con las hojas académicas esperadas.
+- Un archivo Excel consolidado con al menos una hoja cuyo nombre comience por un año de cuatro dígitos y las columnas mínimas `PERIODO`, `ID_ESTUDIANTE` y `ASIGNATURA`.
 - Una API key de Google AI Studio únicamente si se utilizarán las funciones de IA.
 
 ## Instalación local
@@ -116,7 +121,7 @@ Coloca un único archivo Excel dentro de la carpeta `data/`. El nombre es libre:
 data/archivo_academico.xlsx
 ```
 
-El archivo debe contener las hojas académicas de 2023 a 2026. La aplicación detecta automáticamente el único archivo con extensión `.xlsx`, `.xls` o `.xlsm` que encuentre en `data/`; no depende de un nombre fijo. Si encuentra más de un archivo Excel, mostrará un error y solicitará dejar solo uno.
+El archivo puede contener cualquier año académico. La aplicación detecta automáticamente el único archivo con extensión `.xlsx`, `.xls` o `.xlsm` que encuentre en `data/`; no depende de un nombre fijo. Si encuentra más de un archivo Excel, mostrará un error y solicitará dejar solo uno.
 
 Desde la pestaña **Gestión de Datos**, un administrador puede cargar un nuevo archivo. Al confirmar **Guardar y Consolidar**, se eliminan los archivos Excel anteriores de `data/` y se conserva únicamente el archivo nuevo, usando su nombre original.
 
@@ -155,6 +160,10 @@ Las contraseñas iniciales se entregan al administrador por el canal de configur
 ### Análisis por estudiante
 
 Busca por número de documento o nombre completo. La ficha muestra información general, promedio histórico, materias aprobadas y reprobadas, y el historial académico disponible.
+
+### Riesgo del periodo vigente
+
+La sección detecta automáticamente el periodo marcado como `PERIODO_EN_CURSO_NO_FINAL`. Permite filtrar por semestre curricular, consultar el resumen de materias con profesor, estudiantes inscritos y estudiantes en peligro, y filtrar el detalle por materia y docente.
 
 ### Gestión de datos
 

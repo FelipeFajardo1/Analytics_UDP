@@ -1,0 +1,27 @@
+Orden recomendado de implementación
+Fase 1: correcciones importantes
+Hacer dinámicas las hojas del Excel.
+Centralizar los periodos y constantes académicas.
+Corregir el cálculo de porcentajes de aprobación.
+Separar correctamente materia, grupo y profesor.
+Agregar pruebas para duplicados y datos incompletos.
+Fase 2: estructura
+Extraer filtros.
+Extraer la sección de riesgo.
+Extraer la visión global.
+Crear componentes reutilizables para tablas.
+Mejorar manejo de errores y validaciones.
+Fase 3: analítica nueva
+Distribución de notas.
+Evolución de reprobación por materia.
+Riesgo por programa y profesor.
+Retención por cohorte.
+Comparación entre periodos.
+Fase 4: producción
+Base de datos.
+Gestión completa de usuarios.
+Auditoría.
+Copias de seguridad.
+Configuración segura de secretos.
+Pruebas de interfaz y permisos.
+La mejora más urgente, en mi opinión, es hacer dinámico el ETL y separar la lógica de periodo, materia, grupo y profesor. Eso evitaría varios errores futuros cuando cambie el Excel o se agreguen nuevos periodos.

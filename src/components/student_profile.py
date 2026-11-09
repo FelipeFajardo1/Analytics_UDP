@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
+from src.constants import NOTA_MINIMA_APROBACION
 
 
 def _valor_habilitacion(valor):
@@ -186,12 +187,12 @@ def mostrar_ficha_estudiante(df):
             else:
                 if 'DEFINITIVA_ALMACENADA' in df_est_historico_prom.columns:
                     notas = df_est_historico_prom['DEFINITIVA_ALMACENADA'].dropna()
-                    aprobadas = len(notas[notas >= 3.0])
-                    reprobadas = len(notas[notas < 3.0])
+                    aprobadas = len(notas[notas >= NOTA_MINIMA_APROBACION])
+                    reprobadas = len(notas[notas < NOTA_MINIMA_APROBACION])
         elif 'DEFINITIVA_ALMACENADA' in df_est_historico_prom.columns:
             notas = df_est_historico_prom['DEFINITIVA_ALMACENADA'].dropna()
-            aprobadas = len(notas[notas >= 3.0])
-            reprobadas = len(notas[notas < 3.0])
+            aprobadas = len(notas[notas >= NOTA_MINIMA_APROBACION])
+            reprobadas = len(notas[notas < NOTA_MINIMA_APROBACION])
     
     with col_m2:
         st.metric("Materias Aprobadas", f"{aprobadas}")
@@ -399,8 +400,12 @@ def mostrar_ficha_estudiante(df):
                     df_intentos['Valor_Bloque'] = 1
                     df_intentos['Rango_Nota'] = pd.cut(
                         df_intentos['DEFINITIVA_ALMACENADA'],
-                        bins=[-np.inf, 3.0, 4.0, np.inf],
-                        labels=['< 3.0', '3.0 - 3.9', '>= 4.0'],
+                        bins=[-np.inf, NOTA_MINIMA_APROBACION, 4.0, np.inf],
+                        labels=[
+                            f"< {NOTA_MINIMA_APROBACION:.1f}",
+                            f"{NOTA_MINIMA_APROBACION:.1f} - 3.9",
+                            ">= 4.0",
+                        ],
                         right=False,
                     )
                     figura_intentos = px.bar(
@@ -412,7 +417,11 @@ def mostrar_ficha_estudiante(df):
                         custom_data=['PERIODO', 'Intento'],
                         category_orders={
                             'ASIGNATURA': orden_materias,
-                            'Rango_Nota': ['< 3.0', '3.0 - 3.9', '>= 4.0'],
+                            'Rango_Nota': [
+                                f"< {NOTA_MINIMA_APROBACION:.1f}",
+                                f"{NOTA_MINIMA_APROBACION:.1f} - 3.9",
+                                '>= 4.0',
+                            ],
                         },
                         title='Historial de intentos por materia',
                         labels={
@@ -421,8 +430,8 @@ def mostrar_ficha_estudiante(df):
                             'Rango_Nota': 'Rango de nota',
                         },
                         color_discrete_map={
-                            '< 3.0': '#ef4444',
-                            '3.0 - 3.9': '#eab308',
+                            f'< {NOTA_MINIMA_APROBACION:.1f}': '#ef4444',
+                            f'{NOTA_MINIMA_APROBACION:.1f} - 3.9': '#eab308',
                             '>= 4.0': '#22c55e',
                         },
                     )

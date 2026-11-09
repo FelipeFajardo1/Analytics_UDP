@@ -7,7 +7,19 @@ from src.etl.cleaner import cargar_datos_limpios
 from src.services.metrics import (
     calcular_kpis_globales,
     calcular_rendimiento_materias,
-    detectar_alertas_tempranas
+    detectar_alertas_tempranas,
+    calcular_riesgo_periodo_vigente,
+    resumir_materias_periodo,
+    obtener_periodo_vigente,
+    obtener_estudiantes_sin_calificaciones,
+)
+from src.components.tables import colorear_riesgo
+from src.constants import NOTA_MINIMA_APROBACION
+from src.services.filters import filtrar_asignatura, filtrar_docente, filtrar_semestre
+from src.services.periods import (
+    ordenar_periodos,
+    ordenar_semestres_curriculares,
+    periodos_historicos as obtener_periodos_historicos,
 )
 from src.components.charts import (
     graficar_tendencia_promedios,
@@ -108,7 +120,11 @@ def main():
         return
     
     # Pestañas de navegacion
-    nombres_tabs = ["Vision Global", "Analisis Detallado"]
+    nombres_tabs = [
+        "Vision Global",
+        "Riesgo periodo vigente",
+        "Analisis Detallado",
+    ]
     if rol in {"admin", "director"}:
         nombres_tabs.append("Analisis por Estudiante")
     if rol == "admin":
@@ -135,21 +151,7 @@ def main():
         # Los periodos en curso no se mezclan con historicos cerrados.
         periodos_historicos = []
         if 'PERIODO' in df.columns:
-            periodos_historicos = sorted(
-                df.loc[
-                    ~df.get(
-                        'CALIDAD_CIERRE',
-                        pd.Series('', index=df.index),
-                    ).astype(str).str.upper().str.contains(
-                        'PERIODO_EN_CURSO_NO_FINAL', na=False
-                    ),
-                    'PERIODO',
-                ].dropna().unique().tolist(),
-                key=lambda valor: (
-                    int(str(valor).split('-')[0]),
-                    int(str(valor).split('-')[1]),
-                ),
-            )
+            periodos_historicos = obtener_periodos_historicos(df)
 
         if periodos_historicos:
             periodo_inicio, periodo_fin = st.sidebar.select_slider(
@@ -208,12 +210,8 @@ def main():
                         "PERIODO_EN_CURSO_NO_FINAL", na=False
                     )
                 ]
-            periodos_cortes_disponibles = sorted(
+            periodos_cortes_disponibles = ordenar_periodos(
                 datos_materia["PERIODO"].dropna().astype(str).str.strip().unique(),
-                key=lambda valor: (
-                    int(valor.split("-")[0]),
-                    int(valor.split("-")[1]),
-                ),
             )
         periodos_cortes_seleccionados = st.sidebar.multiselect(
             "Periodos para grafica de cortes",
@@ -231,37 +229,7 @@ def main():
                 if str(valor).strip()
             ]
             semestres_curriculares_disponibles.extend(
-                sorted(
-                    set(semestres_curriculares),
-                    key=lambda valor: (
-                        [
-                            "PRIMER",
-                            "SEGUNDO",
-                            "TERCER",
-                            "CUARTO",
-                            "QUINTO",
-                            "SEXTO",
-                            "SEPTIMO",
-                            "OCTAVO",
-                            "NOVENO",
-                            "DECIMO",
-                        ].index(str(valor).split()[0])
-                        if str(valor).split()[0] in {
-                            "PRIMER",
-                            "SEGUNDO",
-                            "TERCER",
-                            "CUARTO",
-                            "QUINTO",
-                            "SEXTO",
-                            "SEPTIMO",
-                            "OCTAVO",
-                            "NOVENO",
-                            "DECIMO",
-                        }
-                        else 999,
-                        valor,
-                    ),
-                )
+                ordenar_semestres_curriculares(semestres_curriculares)
             )
 
         semestre_curricular_seleccionado = st.sidebar.selectbox(
@@ -423,49 +391,6 @@ def main():
                 key="mapa_reprobacion",
             )
 
-            periodos_drilldown = (
-                sorted(
-                    df_filtrado['PERIODO'].dropna().unique().tolist(),
-                    key=lambda valor: (
-                        int(str(valor).split('-')[0]),
-                        int(str(valor).split('-')[1]),
-                    ),
-                )
-                if 'PERIODO' in df_filtrado.columns
-                else []
-            )
-            if periodos_drilldown:
-                periodo_drilldown = st.selectbox(
-                    "Consultar estudiantes reprobados de un periodo",
-                    options=periodos_drilldown,
-                    key="periodo_drilldown",
-                )
-                reprobados = df_filtrado[
-                    (df_filtrado['PERIODO'] == periodo_drilldown)
-                    & (
-                        df_filtrado['ESTADO_MATERIA']
-                        .astype(str)
-                        .str.strip()
-                        .str.upper()
-                        == 'PERDIO'
-                    )
-                ].copy()
-                columnas_drilldown = [
-                    'NOMBRE_COMPLETO',
-                    'NUMERO_DOCUMENTO',
-                    'CORREO_INSTITUCIONAL',
-                ]
-                columnas_disponibles = [
-                    columna for columna in columnas_drilldown
-                    if columna in reprobados.columns
-                ]
-                st.dataframe(
-                    reprobados[columnas_disponibles],
-                    width="stretch",
-                    hide_index=True,
-                )
-            else:
-                st.info("No hay periodos disponibles para consultar.")
     
         st.markdown("---")
 
@@ -497,7 +422,10 @@ def main():
             if periodo_en_curso_seleccionado:
                 st.markdown("---")
                 st.subheader("Estudiantes en Riesgo - Periodo en Curso (2026-2)")
-                st.caption("Basado unicamente en PRIMER_PARCIAL con calificacion menor a 3.0 en 2 o mas asignaturas")
+                st.caption(
+                    "Basado unicamente en PRIMER_PARCIAL con calificacion "
+                    f"menor a {NOTA_MINIMA_APROBACION:.1f} en 2 o mas asignaturas"
+                )
         
                 alertas = detectar_alertas_tempranas(df_filtrado)
         
@@ -518,6 +446,238 @@ def main():
                     st.success("No se detectaron estudiantes en alerta temprana con los criterios actuales.")
 
     with tabs[1]:
+        st.subheader("Riesgo academico del periodo")
+        periodo_vigente = obtener_periodo_vigente(df)
+        periodos_riesgo = []
+        if "PERIODO" in df.columns:
+            periodos_riesgo = ordenar_periodos(
+                df["PERIODO"].dropna().astype(str).str.strip().unique()
+            )
+        if not periodo_vigente or not periodos_riesgo:
+            st.info("No se encontro un periodo academico para analizar.")
+        else:
+            periodo_riesgo = st.selectbox(
+                "Periodo academico",
+                options=periodos_riesgo,
+                index=periodos_riesgo.index(periodo_vigente),
+                help="Por defecto se selecciona el ultimo periodo vigente del Excel.",
+            )
+            st.caption(
+                "La nota necesaria se calcula con 30% para cada parcial y 40% "
+                "para el examen final. Se muestran materias que requieren "
+                "al menos 2.90 en el examen."
+            )
+            sin_calificaciones = obtener_estudiantes_sin_calificaciones(
+                df,
+                periodo_riesgo,
+            )
+            if not sin_calificaciones.empty:
+                st.markdown("### Estudiantes sin calificaciones registradas")
+                st.caption(
+                    "Estas personas tienen primer y segundo corte en cero "
+                    "en todas sus materias del periodo y no se incluyen en "
+                    "las tablas de riesgo."
+                )
+                st.dataframe(
+                    sin_calificaciones,
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "ID_ESTUDIANTE": st.column_config.TextColumn(
+                            "ID estudiante"
+                        ),
+                        "NOMBRE_COMPLETO": st.column_config.TextColumn(
+                            "Nombre del estudiante",
+                            width="large",
+                        ),
+                        "Materias sin calificaciones": st.column_config.NumberColumn(
+                            "Materias sin calificaciones",
+                            format="%d",
+                        ),
+                        "Materias del periodo": st.column_config.TextColumn(
+                            "Materias del periodo",
+                            width="large",
+                        ),
+                        "PERIODO": st.column_config.TextColumn("Periodo"),
+                    },
+                )
+            riesgo = calcular_riesgo_periodo_vigente(df, periodo_riesgo)
+            if riesgo.empty:
+                st.success(
+                    "No hay estudiantes con materias en peligro para este periodo."
+                )
+            else:
+                semestres_riesgo = sorted(
+                    riesgo["SEMESTRE_ASIGNATURA"]
+                    .dropna()
+                    .astype(str)
+                    .str.strip()
+                    .unique()
+                )
+                orden_semestres = {
+                    nombre: indice
+                    for indice, nombre in enumerate(
+                        [
+                            "PRIMER SEMESTRE",
+                            "SEGUNDO SEMESTRE",
+                            "TERCER SEMESTRE",
+                            "CUARTO SEMESTRE",
+                            "QUINTO SEMESTRE",
+                            "SEXTO SEMESTRE",
+                            "SEPTIMO SEMESTRE",
+                            "OCTAVO SEMESTRE",
+                            "NOVENO SEMESTRE",
+                            "DECIMO SEMESTRE",
+                        ]
+                    )
+                }
+                semestres_riesgo.sort(
+                    key=lambda valor: (
+                        orden_semestres.get(valor.upper(), 999),
+                        valor,
+                    )
+                )
+                semestre_riesgo = st.selectbox(
+                    "Semestre curricular de las materias",
+                    options=["Todos"] + semestres_riesgo,
+                    help="Filtra las materias por su semestre curricular.",
+                )
+                riesgo_filtrado = riesgo
+                if semestre_riesgo != "Todos":
+                    riesgo_filtrado = riesgo[
+                        riesgo["SEMESTRE_ASIGNATURA"].astype(str).str.strip()
+                        == semestre_riesgo
+                    ].copy()
+                sin_calificaciones_semestre = obtener_estudiantes_sin_calificaciones(
+                    df,
+                    periodo_riesgo,
+                    semestre_riesgo,
+                )
+                if not sin_calificaciones_semestre.empty:
+                    riesgo_filtrado = riesgo_filtrado[
+                        ~riesgo_filtrado["ID_ESTUDIANTE"].isin(
+                            sin_calificaciones_semestre["ID_ESTUDIANTE"]
+                        )
+                    ].copy()
+                if riesgo_filtrado.empty:
+                    st.info(
+                        "No hay materias en peligro para el semestre curricular "
+                        "seleccionado."
+                    )
+                    st.stop()
+
+                resumen = resumir_materias_periodo(
+                    df,
+                    riesgo_filtrado,
+                    periodo_riesgo,
+                    semestre_riesgo,
+                )
+                st.markdown("### Resumen de materias del periodo")
+                st.dataframe(
+                    resumen,
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "ASIGNATURA": st.column_config.TextColumn(
+                            "Materia", width="large"
+                        ),
+                        "Profesor(es)": st.column_config.TextColumn(
+                            "Profesor(es)", width="large"
+                        ),
+                        "Estudiantes inscritos": st.column_config.NumberColumn(
+                            "Estudiantes inscritos", format="%d"
+                        ),
+                        "Estudiantes en peligro": st.column_config.NumberColumn(
+                            "Estudiantes en peligro", format="%d"
+                        ),
+                    },
+                )
+
+                st.markdown("### Consultas interactivas")
+                materias = sorted(resumen["ASIGNATURA"].unique())
+
+                materia = st.selectbox(
+                    "Materia",
+                    options=materias,
+                    key="riesgo_materia",
+                )
+                datos_materia = df[
+                    df["PERIODO"].astype(str).str.strip() == str(periodo_riesgo)
+                ].copy()
+                if "TIPO_REGISTRO" in datos_materia.columns:
+                    datos_materia = datos_materia[
+                        datos_materia["TIPO_REGISTRO"] == "CON_BOLETIN"
+                    ].copy()
+                datos_materia = filtrar_semestre(datos_materia, semestre_riesgo)
+                datos_materia = filtrar_asignatura(datos_materia, materia)
+                profesores = ["Todos"]
+                if "DOCENTE" in datos_materia.columns:
+                    profesores += sorted(
+                        {
+                            str(profesor).strip()
+                            for profesor in datos_materia["DOCENTE"]
+                            if pd.notna(profesor) and str(profesor).strip()
+                        }
+                    )
+                profesor = st.selectbox(
+                    "Profesor que dicta la materia",
+                    options=profesores,
+                    key="riesgo_profesor",
+                )
+                if profesor != "Todos":
+                    datos_materia = filtrar_docente(datos_materia, profesor)
+                if st.button(
+                    "Ver estudiantes de esta materia",
+                    width="stretch",
+                    key="ver_estudiantes_materia",
+                ):
+                    estudiantes_materia = set(
+                        datos_materia["ID_ESTUDIANTE"].astype(str)
+                    )
+                    detalle_materia = riesgo_filtrado[
+                        (riesgo_filtrado["ASIGNATURA"] == materia)
+                        & (
+                            riesgo_filtrado["ID_ESTUDIANTE"].astype(str).isin(
+                                estudiantes_materia
+                            )
+                        )
+                    ]
+                    if profesor != "Todos" and "DOCENTE" in detalle_materia.columns:
+                        detalle_materia = detalle_materia[
+                            detalle_materia["DOCENTE"].astype(str).str.strip()
+                            == profesor
+                        ]
+                    cantidad_peligro = detalle_materia["ID_ESTUDIANTE"].nunique()
+                    detalle_materia = detalle_materia[
+                        [
+                            "ASIGNATURA",
+                            "NUMERO_DOCUMENTO",
+                            "NOMBRE_COMPLETO",
+                            "Primer corte",
+                            "Segundo corte",
+                            "Necesita examen final",
+                            "Nivel de peligro",
+                        ]
+                    ].sort_values("Necesita examen final", ascending=False)
+                    cantidad_inscritos = datos_materia["ID_ESTUDIANTE"].nunique()
+                    st.markdown(
+                        f"#### Estudiantes de {materia} + "
+                        f"{cantidad_inscritos} inscritos + "
+                        f"{cantidad_peligro} en peligro"
+                    )
+                    st.dataframe(
+                        detalle_materia.style.apply(colorear_riesgo, axis=1).format(
+                            {
+                                "Primer corte": "{:.2f}",
+                                "Segundo corte": "{:.2f}",
+                                "Necesita examen final": "{:.2f}",
+                            }
+                        ),
+                        width="stretch",
+                        hide_index=True,
+                    )
+
+    with tabs[2]:
         st.subheader("Analisis detallado por materia")
         st.caption(
             "Estas visualizaciones aparecen de acuerdo con la asignatura "
@@ -565,7 +725,7 @@ def main():
                     key="reprobados_por_corte",
                 )
 
-    indice_estudiante = 2
+    indice_estudiante = 3
     if rol in {"admin", "director"}:
         with tabs[indice_estudiante]:
             mostrar_ficha_estudiante(df)

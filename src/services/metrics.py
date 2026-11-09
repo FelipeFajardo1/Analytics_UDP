@@ -1,5 +1,377 @@
 import numpy as np
 import pandas as pd
+from src.constants import (
+    NOTA_MINIMA_APROBACION,
+    NOTA_MINIMA_RIESGO,
+    PESO_EXAMEN_FINAL,
+    PESO_PRIMER_CORTE,
+    PESO_SEGUNDO_CORTE,
+)
+from src.services.filters import filtrar_periodo, filtrar_semestre, solo_con_boletin
+from src.services.periods import clave_periodo_academico
+
+
+def _clave_periodo_academico(periodo):
+    return clave_periodo_academico(periodo)
+
+
+def _tasas_aprobacion_reprobacion(df):
+    """Calcula tasas usando solo estados academicos conocidos."""
+    if df is None or df.empty:
+        return 0.0, 0.0
+    estados = df["ESTADO_MATERIA"].astype(str).str.upper().str.strip()
+    aprobados = estados.str.contains("APROBO", na=False)
+    reprobados = estados.str.contains("PERDIO", na=False)
+    validos = aprobados | reprobados
+    if validos.any():
+        total = int(validos.sum())
+        return (
+            float(aprobados[validos].sum() / total * 100),
+            float(reprobados[validos].sum() / total * 100),
+        )
+    if "DEFINITIVA_ALMACENADA" not in df.columns:
+        return 0.0, 0.0
+    notas = pd.to_numeric(df["DEFINITIVA_ALMACENADA"], errors="coerce").dropna()
+    if notas.empty:
+        return 0.0, 0.0
+    return (
+        float((notas >= NOTA_MINIMA_APROBACION).mean() * 100),
+        float((notas < NOTA_MINIMA_APROBACION).mean() * 100),
+    )
+
+
+def obtener_periodo_vigente(df: pd.DataFrame):
+    """Obtiene el periodo en curso marcado por el ETL o el ultimo disponible."""
+    if df is None or df.empty or "PERIODO" not in df.columns:
+        return None
+    trabajo = df.copy()
+    if "CALIDAD_CIERRE" in trabajo.columns:
+        vigentes = trabajo[
+            trabajo["CALIDAD_CIERRE"].astype(str).str.upper().str.contains(
+                "PERIODO_EN_CURSO_NO_FINAL",
+                na=False,
+            )
+        ]
+        periodos_vigentes = vigentes["PERIODO"].dropna().astype(str).str.strip()
+        if not periodos_vigentes.empty:
+            return max(periodos_vigentes, key=_clave_periodo_academico)
+    periodos = trabajo["PERIODO"].dropna().astype(str).str.strip()
+    if periodos.empty:
+        return None
+    return max(periodos, key=_clave_periodo_academico)
+
+
+def obtener_estudiantes_sin_calificaciones(
+    df: pd.DataFrame,
+    periodo=None,
+    semestre_curricular=None,
+):
+    """Lista estudiantes con ambos cortes en cero en todas sus materias."""
+    columnas = {
+        "PERIODO",
+        "ID_ESTUDIANTE",
+        "ASIGNATURA",
+        "PRIMER_PARCIAL",
+        "SEGUNDO_PARCIAL",
+    }
+    if df is None or df.empty or not columnas.issubset(df.columns):
+        return pd.DataFrame()
+    periodo = periodo or obtener_periodo_vigente(df)
+    if periodo is None:
+        return pd.DataFrame()
+
+    trabajo = filtrar_semestre(
+        solo_con_boletin(filtrar_periodo(df, periodo)),
+        semestre_curricular,
+    )
+    if trabajo.empty:
+        return pd.DataFrame()
+    for columna in ["PRIMER_PARCIAL", "SEGUNDO_PARCIAL"]:
+        trabajo[columna] = pd.to_numeric(trabajo[columna], errors="coerce")
+    trabajo["ASIGNATURA"] = trabajo["ASIGNATURA"].astype(str).str.strip()
+    trabajo = trabajo[~trabajo["ASIGNATURA"].isin(["", "nan"])].copy()
+    if trabajo.empty:
+        return pd.DataFrame()
+
+    trabajo["_sin_calificaciones"] = (
+        trabajo["PRIMER_PARCIAL"].eq(0)
+        & trabajo["SEGUNDO_PARCIAL"].eq(0)
+    )
+    resumen = trabajo.groupby("ID_ESTUDIANTE").agg(
+        todas_sin_calificaciones=("_sin_calificaciones", "all"),
+        materias=("ASIGNATURA", "nunique"),
+        materias_cursadas=(
+            "ASIGNATURA",
+            lambda valores: ", ".join(sorted(set(valores))),
+        ),
+    )
+    resumen = resumen[resumen["todas_sin_calificaciones"]].reset_index()
+    if resumen.empty:
+        return pd.DataFrame()
+
+    for columna in ["NOMBRE_COMPLETO"]:
+        if columna in trabajo.columns:
+            datos = trabajo.groupby("ID_ESTUDIANTE")[columna].first()
+            resumen[columna] = resumen["ID_ESTUDIANTE"].map(datos)
+        else:
+            resumen[columna] = "N/A"
+    resumen["PERIODO"] = str(periodo)
+    return resumen[
+        [
+            "ID_ESTUDIANTE",
+            "NOMBRE_COMPLETO",
+            "materias",
+            "materias_cursadas",
+            "PERIODO",
+        ]
+    ].rename(
+        columns={
+            "materias": "Materias sin calificaciones",
+            "materias_cursadas": "Materias del periodo",
+        }
+    ).sort_values("NOMBRE_COMPLETO").reset_index(drop=True)
+
+
+def calcular_riesgo_periodo_vigente(df: pd.DataFrame, periodo=None):
+    """Calcula la nota necesaria en el examen final para aprobar."""
+    columnas = {
+        "PERIODO",
+        "ASIGNATURA",
+        "ID_ESTUDIANTE",
+        "PRIMER_PARCIAL",
+        "SEGUNDO_PARCIAL",
+    }
+    if df is None or df.empty or not columnas.issubset(df.columns):
+        return pd.DataFrame()
+    periodo = periodo or obtener_periodo_vigente(df)
+    if periodo is None:
+        return pd.DataFrame()
+
+    trabajo = solo_con_boletin(filtrar_periodo(df, periodo))
+    if trabajo.empty:
+        return pd.DataFrame()
+
+    for columna in ["PRIMER_PARCIAL", "SEGUNDO_PARCIAL"]:
+        trabajo[columna] = pd.to_numeric(trabajo[columna], errors="coerce")
+    trabajo["ASIGNATURA"] = trabajo["ASIGNATURA"].astype(str).str.strip()
+    trabajo = trabajo[~trabajo["ASIGNATURA"].isin(["", "nan"])].copy()
+    estudiantes_sin_calificaciones = obtener_estudiantes_sin_calificaciones(
+        trabajo,
+        periodo,
+    )
+    if not estudiantes_sin_calificaciones.empty:
+        trabajo = trabajo[
+            ~trabajo["ID_ESTUDIANTE"].isin(
+                estudiantes_sin_calificaciones["ID_ESTUDIANTE"]
+            )
+        ].copy()
+    trabajo = trabajo.dropna(subset=["PRIMER_PARCIAL", "SEGUNDO_PARCIAL"]).copy()
+    if trabajo.empty:
+        return pd.DataFrame()
+
+    agrupaciones = {
+        "Primer corte": ("PRIMER_PARCIAL", "mean"),
+        "Segundo corte": ("SEGUNDO_PARCIAL", "mean"),
+    }
+    identidad = ["ID_ESTUDIANTE", "ASIGNATURA"]
+    for columna in ("DOCENTE", "GRUPO"):
+        if columna in trabajo.columns:
+            identidad.append(columna)
+    resultado = trabajo.groupby(identidad, as_index=False).agg(**agrupaciones)
+    resultado["Necesita examen final"] = (
+        NOTA_MINIMA_APROBACION
+        - resultado["Primer corte"] * PESO_PRIMER_CORTE
+        - resultado["Segundo corte"] * PESO_SEGUNDO_CORTE
+    ) / PESO_EXAMEN_FINAL
+    resultado["Necesita examen final"] = resultado["Necesita examen final"].round(2)
+    resultado = resultado[resultado["Necesita examen final"] >= NOTA_MINIMA_RIESGO].copy()
+    if resultado.empty:
+        return pd.DataFrame()
+
+    resultado["Nivel de peligro"] = np.select(
+        [
+            resultado["Necesita examen final"] > 5.0,
+            resultado["Necesita examen final"] >= 4.0,
+            resultado["Necesita examen final"] >= NOTA_MINIMA_RIESGO,
+        ],
+        ["No puede aprobar", "Peligro alto", "Peligro medio"],
+        default="",
+    )
+    for columna in ["NOMBRE_COMPLETO", "NUMERO_DOCUMENTO"]:
+        if columna in trabajo.columns:
+            datos = trabajo.groupby("ID_ESTUDIANTE")[columna].first()
+            resultado[columna] = resultado["ID_ESTUDIANTE"].map(datos)
+        else:
+            resultado[columna] = "N/A"
+    if "SEMESTRE_ASIGNATURA" in trabajo.columns:
+        semestres = (
+            trabajo.groupby(["ID_ESTUDIANTE", "ASIGNATURA"])[
+                "SEMESTRE_ASIGNATURA"
+            ]
+            .first()
+        )
+        resultado["SEMESTRE_ASIGNATURA"] = [
+            semestres.get((estudiante, asignatura), "Sin semestre")
+            for estudiante, asignatura in zip(
+                resultado["ID_ESTUDIANTE"],
+                resultado["ASIGNATURA"],
+            )
+        ]
+    else:
+        resultado["SEMESTRE_ASIGNATURA"] = "Sin semestre"
+    cantidades = resultado.groupby("ID_ESTUDIANTE")["ASIGNATURA"].transform("count")
+    resultado["Materias en peligro"] = cantidades
+    resultado["PERIODO"] = str(periodo)
+    return resultado.sort_values(
+        ["Necesita examen final", "ASIGNATURA"],
+        ascending=[False, True],
+    ).reset_index(drop=True)
+
+
+def calcular_detalle_estudiante_periodo(
+    df: pd.DataFrame,
+    periodo,
+    id_estudiante,
+    semestre_curricular=None,
+):
+    """Calcula la nota necesaria por cada materia cursada por un estudiante."""
+    columnas = {
+        "PERIODO",
+        "ASIGNATURA",
+        "ID_ESTUDIANTE",
+        "PRIMER_PARCIAL",
+        "SEGUNDO_PARCIAL",
+    }
+    if df is None or df.empty or not columnas.issubset(df.columns):
+        return pd.DataFrame()
+
+    trabajo = df[
+        (df["PERIODO"].astype(str).str.strip() == str(periodo))
+        & (df["ID_ESTUDIANTE"].astype(str) == str(id_estudiante))
+    ].copy()
+    trabajo = solo_con_boletin(trabajo)
+    if (
+        semestre_curricular
+        and semestre_curricular != "Todos"
+        and "SEMESTRE_ASIGNATURA" in trabajo.columns
+    ):
+        trabajo = trabajo[
+            trabajo["SEMESTRE_ASIGNATURA"].astype(str).str.strip()
+            == semestre_curricular
+        ].copy()
+    if trabajo.empty:
+        return pd.DataFrame()
+
+    for columna in ["PRIMER_PARCIAL", "SEGUNDO_PARCIAL"]:
+        trabajo[columna] = pd.to_numeric(trabajo[columna], errors="coerce")
+    trabajo["ASIGNATURA"] = trabajo["ASIGNATURA"].astype(str).str.strip()
+    trabajo = trabajo[
+        ~trabajo["ASIGNATURA"].isin(["", "nan"])
+    ].dropna(subset=["PRIMER_PARCIAL", "SEGUNDO_PARCIAL"])
+    if trabajo.empty:
+        return pd.DataFrame()
+
+    detalle = trabajo.groupby(
+        ["ID_ESTUDIANTE", "ASIGNATURA"],
+        as_index=False,
+    ).agg(
+        **{
+            "Primer corte": ("PRIMER_PARCIAL", "mean"),
+            "Segundo corte": ("SEGUNDO_PARCIAL", "mean"),
+        }
+    )
+    detalle["Necesita examen final"] = (
+        NOTA_MINIMA_APROBACION
+        - detalle["Primer corte"] * PESO_PRIMER_CORTE
+        - detalle["Segundo corte"] * PESO_SEGUNDO_CORTE
+    ) / PESO_EXAMEN_FINAL
+    detalle["Necesita examen final"] = detalle[
+        "Necesita examen final"
+    ].clip(lower=0).round(2)
+    detalle["Estado"] = np.where(
+        detalle["Necesita examen final"].eq(0),
+        "Ya alcanza el promedio mínimo",
+        "Debe obtener esta nota",
+    )
+    return detalle.sort_values("ASIGNATURA").reset_index(drop=True)
+
+
+def resumir_materias_periodo(
+    df: pd.DataFrame,
+    riesgo: pd.DataFrame,
+    periodo,
+    semestre_curricular=None,
+):
+    """Resume profesor, inscritos y estudiantes en peligro por materia."""
+    columnas = {"PERIODO", "ASIGNATURA", "ID_ESTUDIANTE"}
+    if df is None or df.empty or not columnas.issubset(df.columns):
+        return pd.DataFrame()
+
+    trabajo = df[df["PERIODO"].astype(str).str.strip() == str(periodo)].copy()
+    if "TIPO_REGISTRO" in trabajo.columns:
+        trabajo = trabajo[trabajo["TIPO_REGISTRO"] == "CON_BOLETIN"].copy()
+    if (
+        semestre_curricular
+        and semestre_curricular != "Todos"
+        and "SEMESTRE_ASIGNATURA" in trabajo.columns
+    ):
+        trabajo = trabajo[
+            trabajo["SEMESTRE_ASIGNATURA"].astype(str).str.strip()
+            == semestre_curricular
+        ].copy()
+    trabajo["ASIGNATURA"] = trabajo["ASIGNATURA"].astype(str).str.strip()
+    trabajo = trabajo[~trabajo["ASIGNATURA"].isin(["", "nan"])].copy()
+    if trabajo.empty:
+        return pd.DataFrame()
+
+    resumen = trabajo.groupby("ASIGNATURA", as_index=False).agg(
+        **{
+            "Estudiantes inscritos": ("ID_ESTUDIANTE", "nunique"),
+        }
+    )
+    if "DOCENTE" in trabajo.columns:
+        profesores = trabajo.groupby("ASIGNATURA")["DOCENTE"].agg(
+            lambda valores: ", ".join(
+                sorted(
+                    {
+                        str(valor).strip()
+                        for valor in valores
+                        if pd.notna(valor) and str(valor).strip()
+                    }
+                )
+            )
+        )
+        resumen["Profesor(es)"] = resumen["ASIGNATURA"].map(profesores)
+    else:
+        resumen["Profesor(es)"] = "Sin profesor registrado"
+    resumen["Profesor(es)"] = resumen["Profesor(es)"].replace(
+        "", "Sin profesor registrado"
+    )
+
+    riesgo_trabajo = riesgo.copy() if riesgo is not None else pd.DataFrame()
+    if not riesgo_trabajo.empty:
+        if semestre_curricular and semestre_curricular != "Todos":
+            riesgo_trabajo = riesgo_trabajo[
+                riesgo_trabajo["SEMESTRE_ASIGNATURA"].astype(str).str.strip()
+                == semestre_curricular
+            ]
+        peligros = riesgo_trabajo.groupby("ASIGNATURA")[
+            "ID_ESTUDIANTE"
+        ].nunique()
+        resumen["Estudiantes en peligro"] = (
+            resumen["ASIGNATURA"].map(peligros).fillna(0).astype(int)
+        )
+    else:
+        resumen["Estudiantes en peligro"] = 0
+
+    return resumen[
+        [
+            "ASIGNATURA",
+            "Profesor(es)",
+            "Estudiantes inscritos",
+            "Estudiantes en peligro",
+        ]
+    ].sort_values("ASIGNATURA").reset_index(drop=True)
 
 
 def calcular_kpis_globales(df: pd.DataFrame):
@@ -57,41 +429,20 @@ def calcular_kpis_globales(df: pd.DataFrame):
             nota_promedio_global = float(notas_validas.mean())
     
     # Calcular tasa de aprobacion vs. reprobacion
-    tasa_aprobacion = 0.0
-    tasa_reprobacion = 0.0
-    
-    if 'ESTADO_MATERIA' in df_trabajo.columns and 'DEFINITIVA_ALMACENADA' in df_trabajo.columns:
-        df_estado = df_trabajo.copy()
-        # Considerar solo registros con estado definido
-        df_estado = df_estado[df_estado['ESTADO_MATERIA'].notna()]
-        
-        if not df_estado.empty:
-            total = len(df_estado)
-            if total > 0:
-                # Contar aprobados y reprobados
-                aprobados = df_estado[df_estado['ESTADO_MATERIA'].str.upper().str.contains('APROBO', na=False)]
-                reprobados = df_estado[df_estado['ESTADO_MATERIA'].str.upper().str.contains('PERDIO', na=False)]
-                
-                tasa_aprobacion = (len(aprobados) / total) * 100.0
-                tasa_reprobacion = (len(reprobados) / total) * 100.0
-        else:
-            # Fallback: calcular por nota
-            notas = df_trabajo['DEFINITIVA_ALMACENADA'].dropna()
-            if not notas.empty:
-                total = len(notas)
-                aprobados = notas[notas >= 3.0]
-                reprobados = notas[notas < 3.0]
-                tasa_aprobacion = (len(aprobados) / total) * 100.0
-                tasa_reprobacion = (len(reprobados) / total) * 100.0
-    elif 'DEFINITIVA_ALMACENADA' in df_trabajo.columns:
-        # Calcular por nota si no hay ESTADO_MATERIA
-        notas = df_trabajo['DEFINITIVA_ALMACENADA'].dropna()
-        if not notas.empty:
-            total = len(notas)
-            aprobados = notas[notas >= 3.0]
-            reprobados = notas[notas < 3.0]
-            tasa_aprobacion = (len(aprobados) / total) * 100.0
-            tasa_reprobacion = (len(reprobados) / total) * 100.0
+    if "ESTADO_MATERIA" in df_trabajo.columns:
+        tasa_aprobacion, tasa_reprobacion = _tasas_aprobacion_reprobacion(
+            df_trabajo
+        )
+    elif "DEFINITIVA_ALMACENADA" in df_trabajo.columns:
+        notas = pd.to_numeric(
+            df_trabajo["DEFINITIVA_ALMACENADA"], errors="coerce"
+        ).dropna()
+        tasa_aprobacion = float(
+            (notas >= NOTA_MINIMA_APROBACION).mean() * 100
+        ) if not notas.empty else 0.0
+        tasa_reprobacion = float(
+            (notas < NOTA_MINIMA_APROBACION).mean() * 100
+        ) if not notas.empty else 0.0
     
     return {
         'total_estudiantes_unicos': int(total_estudiantes_unicos),
@@ -132,7 +483,11 @@ def calcular_rendimiento_materias(df: pd.DataFrame):
     resultados = []
     
     for asignatura, grupo in df_trabajo.groupby('ASIGNATURA'):
-        num_inscritos = len(grupo)
+        num_inscritos = (
+            grupo["ID_ESTUDIANTE"].nunique()
+            if "ID_ESTUDIANTE" in grupo.columns
+            else len(grupo)
+        )
         if num_inscritos == 0:
             continue
         
@@ -146,25 +501,12 @@ def calcular_rendimiento_materias(df: pd.DataFrame):
         # Calcular porcentaje de reprobacion
         porcentaje_reprobacion = 0.0
         if 'ESTADO_MATERIA' in grupo.columns:
-            grupo_estado = grupo[grupo['ESTADO_MATERIA'].notna()]
-            if not grupo_estado.empty:
-                total = len(grupo_estado)
-                if total > 0:
-                    reprobados = grupo_estado[grupo_estado['ESTADO_MATERIA'].str.upper().str.contains('PERDIO', na=False)]
-                    porcentaje_reprobacion = (len(reprobados) / total) * 100.0
-            else:
-                # Fallback por nota
-                if 'DEFINITIVA_ALMACENADA' in grupo.columns:
-                    notas = grupo['DEFINITIVA_ALMACENADA'].dropna()
-                    if not notas.empty:
-                        total = len(notas)
-                        reprobados = notas[notas < 3.0]
-                        porcentaje_reprobacion = (len(reprobados) / total) * 100.0
+            _, porcentaje_reprobacion = _tasas_aprobacion_reprobacion(grupo)
         elif 'DEFINITIVA_ALMACENADA' in grupo.columns:
             notas = grupo['DEFINITIVA_ALMACENADA'].dropna()
             if not notas.empty:
                 total = len(notas)
-                reprobados = notas[notas < 3.0]
+                reprobados = notas[notas < NOTA_MINIMA_APROBACION]
                 porcentaje_reprobacion = (len(reprobados) / total) * 100.0
         
         resultados.append({

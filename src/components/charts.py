@@ -1,5 +1,7 @@
 import pandas as pd
 import plotly.graph_objects as go
+from src.constants import NOTA_MINIMA_APROBACION
+from src.services.periods import clave_periodo_academico
 
 
 def _preparar_tendencias(df):
@@ -34,12 +36,7 @@ def _ordenar_periodos(periodos):
 
 
 def _clave_periodo(periodo):
-    texto = str(periodo).strip()
-    try:
-        anio, semestre = texto.split("-", 1)
-        return int(anio), int(semestre)
-    except (ValueError, TypeError):
-        return 9999, 9999
+    return clave_periodo_academico(periodo)
 
 
 def _agrupar_tendencia(grupo):
@@ -123,13 +120,13 @@ def _graficar_tendencia_asignatura(
     series = [
         ("Promedio materia", evaluaciones, "#1f77b4"),
         (
-            "Acumulado >= 3.0",
-            evaluaciones[evaluaciones["acumulado"] >= 3.0],
+            f"Acumulado >= {NOTA_MINIMA_APROBACION:.1f}",
+            evaluaciones[evaluaciones["acumulado"] >= NOTA_MINIMA_APROBACION],
             "#2ca02c",
         ),
         (
-            "Acumulado < 3.0",
-            evaluaciones[evaluaciones["acumulado"] < 3.0],
+            f"Acumulado < {NOTA_MINIMA_APROBACION:.1f}",
+            evaluaciones[evaluaciones["acumulado"] < NOTA_MINIMA_APROBACION],
             "#d62728",
         ),
     ]
@@ -210,13 +207,17 @@ def graficar_tendencia_promedios(df, periodos_visibles=None):
     series = [
         ("Promedio general", estudiantes, "#1f77b4"),
         (
-            "Promedio acumulado >= 3.0",
-            estudiantes[estudiantes["promedio_acumulado"] >= 3.0],
+            f"Promedio acumulado >= {NOTA_MINIMA_APROBACION:.1f}",
+            estudiantes[
+                estudiantes["promedio_acumulado"] >= NOTA_MINIMA_APROBACION
+            ],
             "#2ca02c",
         ),
         (
-            "Promedio acumulado < 3.0",
-            estudiantes[estudiantes["promedio_acumulado"] < 3.0],
+            f"Promedio acumulado < {NOTA_MINIMA_APROBACION:.1f}",
+            estudiantes[
+                estudiantes["promedio_acumulado"] < NOTA_MINIMA_APROBACION
+            ],
             "#d62728",
         ),
     ]
@@ -300,12 +301,16 @@ def graficar_tendencia_promedio_materia(df, asignatura, periodos_visibles=None):
         ("Promedio general de la materia", trabajo, "#1f77b4"),
         (
             "Promedio de aprobados",
-            trabajo[trabajo["DEFINITIVA_ALMACENADA"] >= 3.0],
+            trabajo[
+                trabajo["DEFINITIVA_ALMACENADA"] >= NOTA_MINIMA_APROBACION
+            ],
             "#2ca02c",
         ),
         (
             "Promedio de reprobados",
-            trabajo[trabajo["DEFINITIVA_ALMACENADA"] < 3.0],
+            trabajo[
+                trabajo["DEFINITIVA_ALMACENADA"] < NOTA_MINIMA_APROBACION
+            ],
             "#d62728",
         ),
     ]
@@ -396,7 +401,7 @@ def graficar_reprobados_por_corte(df, asignatura, periodos_seleccionados):
             notas[columna] = pd.to_numeric(notas[columna], errors="coerce")
             notas = notas.dropna(subset=[columna])
             notas = notas.groupby("ID_ESTUDIANTE", as_index=False)[columna].mean()
-            reprobados = notas[notas[columna] < 3.0]
+            reprobados = notas[notas[columna] < NOTA_MINIMA_APROBACION]
             valores.append(len(reprobados))
             promedios.append(
                 reprobados[columna].mean() if not reprobados.empty else None
@@ -456,8 +461,16 @@ def graficar_tendencia_cantidades(df, periodos_visibles=None):
     fig = go.Figure()
 
     for nombre, condicion, color in (
-        ("Aprobados", trabajo["DEFINITIVA_ALMACENADA"] >= 3.0, "#2ca02c"),
-        ("Reprobados", trabajo["DEFINITIVA_ALMACENADA"] < 3.0, "#d62728"),
+        (
+            "Aprobados",
+            trabajo["DEFINITIVA_ALMACENADA"] >= NOTA_MINIMA_APROBACION,
+            "#2ca02c",
+        ),
+        (
+            "Reprobados",
+            trabajo["DEFINITIVA_ALMACENADA"] < NOTA_MINIMA_APROBACION,
+            "#d62728",
+        ),
     ):
         grupo = trabajo[condicion]
         columna_conteo = (
@@ -537,7 +550,7 @@ def graficar_mapa_reprobacion(df, semestres_curriculares=None):
         return fig
 
     trabajo["ID_REPROBADO"] = trabajo["ID_ESTUDIANTE"].where(
-        trabajo["DEFINITIVA_ALMACENADA"] < 3.0
+        trabajo["DEFINITIVA_ALMACENADA"] < NOTA_MINIMA_APROBACION
     )
     resumen = (
         trabajo.groupby(["ASIGNATURA", "PERIODO"])

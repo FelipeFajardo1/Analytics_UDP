@@ -1,6 +1,8 @@
 from pathlib import Path
+import re
 import pandas as pd
 import numpy as np
+from src.constants import EXTENSIONES_EXCEL
 
 
 def _limpiar_texto(df):
@@ -56,7 +58,7 @@ def _encontrar_archivo_excel():
     carpeta_data = Path("data")
     archivos_excel = sorted(
         archivo for archivo in carpeta_data.iterdir()
-        if archivo.is_file() and archivo.suffix.lower() in {".xlsx", ".xls", ".xlsm"}
+        if archivo.is_file() and archivo.suffix.lower() in EXTENSIONES_EXCEL
     ) if carpeta_data.exists() else []
 
     if not archivos_excel:
@@ -89,34 +91,20 @@ def cargar_datos_limpios(ruta_excel=None):
     if ruta_excel is None:
         ruta_excel = _encontrar_archivo_excel()
     
-    # Hojas a cargar
-    hojas_a_cargar = [
-        '2023 registros  academicos',
-        '2024 registros  academicos',
-        '2025 registros  academicos',
-        '2026 registros  academicos'
-    ]
-    
     # Leer archivo Excel
     excel_file = pd.ExcelFile(ruta_excel)
-    
+    hojas_a_cargar = [
+        hoja
+        for hoja in excel_file.sheet_names
+        if re.match(r"^\s*\d{4}\b", str(hoja))
+    ]
+    if not hojas_a_cargar:
+        raise ValueError(
+            "No se encontraron hojas academicas cuyo nombre comience por un año."
+        )
+
     dataframes = []
-    
-    for hoja in hojas_a_cargar:
-        # Buscar la hoja con el nombre correcto (manejar acentos)
-        if hoja in excel_file.sheet_names:
-            nombre_hoja = hoja
-        else:
-            # Buscar por patron
-            nombre_hoja = None
-            for s in excel_file.sheet_names:
-                if str(s).strip().startswith(hoja.split()[0]):
-                    nombre_hoja = s
-                    break
-            if nombre_hoja is None:
-                raise ValueError(f"No se encontro la hoja para {hoja}")
-        
-        # Leer hoja
+    for nombre_hoja in hojas_a_cargar:
         df = pd.read_excel(excel_file, sheet_name=nombre_hoja)
         
         # Limpiar
@@ -142,5 +130,11 @@ def cargar_datos_limpios(ruta_excel=None):
     
     # Consolidar todos los DataFrames
     df_consolidado = pd.concat(dataframes, ignore_index=True)
-    
+    columnas_minimas = {"PERIODO", "ID_ESTUDIANTE", "ASIGNATURA"}
+    faltantes = columnas_minimas.difference(df_consolidado.columns)
+    if faltantes:
+        raise ValueError(
+            "El archivo academico no contiene las columnas obligatorias: "
+            + ", ".join(sorted(faltantes))
+        )
     return df_consolidado
