@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 from src.etl.cleaner import cargar_datos_limpios
 from src.components.student_profile import mostrar_ficha_estudiante
 from src.services.ai_copilot import obtener_api_key_configurada
@@ -85,10 +86,26 @@ def main():
     
     # Cargar datos
     with st.spinner("Cargando y limpiando datos..."):
-        df = filtrar_datos_por_rol(cargar_datos(), usuario)
-    
+        try:
+            df = filtrar_datos_por_rol(cargar_datos(), usuario)
+        except (FileNotFoundError, OSError, ValueError) as error:
+            df = pd.DataFrame()
+            st.error(f"No fue posible cargar el consolidado academico: {error}")
+
     if df.empty:
-        st.error("No se encontraron datos para mostrar.")
+        if rol == "admin":
+            st.warning(
+                "Aun no hay un archivo Excel academico cargado. "
+                "Subelo desde Gestion de Datos para activar el dashboard."
+            )
+            tabs = st.tabs(["Gestion de Datos (Administrador)"])
+            with tabs[0]:
+                render_admin_tab(cargar_datos)
+        else:
+            st.error(
+                "El dashboard aun no tiene datos disponibles. "
+                "Solicita al administrador cargar el consolidado academico."
+            )
         return
     
     # Pestañas de navegacion

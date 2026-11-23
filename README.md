@@ -145,6 +145,36 @@ Después abre la URL mostrada por Streamlit, normalmente:
 http://localhost:8501
 ```
 
+## Publicar en Streamlit Community Cloud
+
+1. Crea una cuenta en [Streamlit Community Cloud](https://share.streamlit.io/)
+   con la cuenta de GitHub que posee este repositorio.
+2. Selecciona **Create app** y configura:
+   - Repository: `FelipeFajardo1/Analytics_UDP`
+   - Branch: `main`
+   - Main file path: `app.py`
+3. En **Advanced settings → Secrets**, agrega las variables necesarias:
+
+```toml
+GOOGLE_API_KEY = "tu-clave-de-Google-AI-Studio"
+```
+
+4. Selecciona **Deploy**. Streamlit generará un enlace público; puedes
+   compartirlo con el decano y los usuarios autorizados.
+5. En la primera ejecución, inicia sesión como administrador, abre
+   **Gestion de Datos** y carga el Excel consolidado.
+
+Importante:
+
+- El Excel cargado queda en el almacenamiento temporal del servidor. Un
+  reinicio o re-despliegue puede eliminarlo, por lo que deberá volver a
+  cargarse o usarse almacenamiento persistente para producción.
+- Las cuentas creadas o modificadas en el entorno local no deben confiarse
+  como persistentes en Streamlit Cloud. Para producción se recomienda migrar
+  autenticación y datos a una base de datos externa.
+- No agregues `.streamlit/secrets.toml`, Excel institucional,
+  `auth_users.json` ni `audit.log` al repositorio.
+
 El dashboard inicia con una pantalla de acceso por usuario y contraseña. Las cuentas se almacenan localmente en `auth_users.json` usando hashes PBKDF2; el archivo está excluido de Git.
 
 ### Roles de acceso

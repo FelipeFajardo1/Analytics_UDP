@@ -22,24 +22,37 @@ def render_admin_tab(cargar_datos):
         "asignadas al docente seleccionado."
     )
     docentes_disponibles = []
-    datos_actuales = cargar_datos()
+    try:
+        datos_actuales = cargar_datos()
+    except (FileNotFoundError, OSError, ValueError):
+        datos_actuales = pd.DataFrame()
     if "DOCENTE" in datos_actuales.columns:
         docentes_disponibles = sorted(
             nombre
             for nombre in datos_actuales["DOCENTE"].dropna().astype(str).str.strip().unique()
             if nombre
         )
+    opciones_docentes = (
+        docentes_disponibles
+        if docentes_disponibles
+        else ["Sin docentes disponibles"]
+    )
     with st.form("crear_cuenta_profesor"):
         nuevo_usuario = st.text_input("Usuario del profesor")
         nombre_profesor = st.text_input("Nombre visible")
         docente_asociado = st.selectbox(
             "Docente del archivo academico",
-            options=docentes_disponibles,
+            options=opciones_docentes,
+            disabled=not docentes_disponibles,
         )
         nueva_contrasena = st.text_input("Contrasena inicial", type="password")
         crear_cuenta = st.form_submit_button("Crear cuenta", width="stretch")
     if crear_cuenta:
         try:
+            if not docentes_disponibles:
+                raise ValueError(
+                    "Primero carga el Excel academico para seleccionar docentes."
+                )
             create_professor(
                 nuevo_usuario,
                 nombre_profesor,
