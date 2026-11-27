@@ -13,7 +13,7 @@ from src.ui.subject_analysis import render_subject_analysis_tab
 
 
 st.set_page_config(
-    page_title="Analitica Academica UDP",
+    page_title="Analítica Académica y Rendimiento AAR",
     page_icon="YS",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -32,7 +32,7 @@ def main():
         st.session_state.autenticado = False
     
     if not st.session_state.autenticado:
-        st.title("Acceso Restringido - Analitica Academica UDP")
+        st.title("Acceso restringido - Analítica Académica y Rendimiento AAR")
         st.markdown("**Informacion estrictamente confidencial - Solo personal autorizado**")
         
         col_login1, col_login2, col_login3 = st.columns([1, 2, 1])
@@ -55,7 +55,7 @@ def main():
             st.markdown("---")
         return
     
-    st.title("Analitica Academica UDP")
+    st.title("Analítica Académica y Rendimiento AAR")
     st.markdown("Sistema de analisis del rendimiento academico para la toma de decisiones")
     usuario = st.session_state.get("usuario", {})
     rol = usuario.get("role", "")
